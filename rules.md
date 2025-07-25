@@ -19,6 +19,7 @@
 | spf13/cobra | 命令行工具 |
 | text/template | 文本模板 |
 | github.com/swaggo/gin-swagger | swagger文档生成 |
+| github.com/hashicorp/go-version | SemVer语义的依赖版本检查 |
 
 ## 结构
 
