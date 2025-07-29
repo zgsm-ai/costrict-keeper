@@ -6,8 +6,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"costrict-host/cmd/root"
-	"costrict-host/services"
+	"costrict-keeper/cmd/root"
+	"costrict-keeper/services"
 )
 
 var (
@@ -18,6 +18,7 @@ var (
 
 func init() {
 	root.RootCmd.AddCommand(Cmd)
+	Cmd.Flags().SortFlags = false
 	Cmd.Flags().StringVarP(&logFile, "file", "f", "", "日志文件路径")
 	Cmd.Flags().StringVarP(&serviceName, "service", "s", "", "服务名称")
 }

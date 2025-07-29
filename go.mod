@@ -1,4 +1,4 @@
-module costrict-host
+module costrict-keeper
 
 go 1.22.3
 

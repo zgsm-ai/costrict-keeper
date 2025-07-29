@@ -1,7 +1,7 @@
 package services
 
 import (
-	"costrict-host/internal/config"
+	"costrict-keeper/internal/config"
 	"log"
 	"time"
 )

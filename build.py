@@ -10,7 +10,7 @@ opt_debug = False
 opt_install = False
 opt_software = "1.0.20250603"
 opt_protocol = "1.0.20250603"
-opt_app = "costrict-host"
+opt_app = "costrict-keeper"
 
 def run_cmd(cmd):
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

@@ -6,7 +6,7 @@ EXEEXT ?=
 ifeq (windows,$(OS))
 EXEEXT := .exe
 endif
-APP    := costrict-host$(EXEEXT)
+APP    := costrict-keeper$(EXEEXT)
 
 build:
 	python ./build.py --software $(VER)

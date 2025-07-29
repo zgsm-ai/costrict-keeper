@@ -1,25 +1,37 @@
 package upgrade
 
 import (
-	"costrict-host/cmd/root"
-	"costrict-host/internal/utils"
+	"costrict-keeper/cmd/root"
+	"costrict-keeper/internal/utils"
 	"fmt"
 
 	"github.com/spf13/cobra"
 )
 
+var optComponent string
+var optVersion string
+
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade [component]",
 	Short: "升级指定组件",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := upgradeComponent(args[0], optVersion); err != nil {
+		// 确定组件名称：优先使用位置参数，其次使用命令行参数
+		component := optComponent
+		if len(args) > 0 && args[0] != "" {
+			component = args[0]
+		}
+
+		if component == "" {
+			fmt.Println("错误：必须指定组件名称")
+			return
+		}
+
+		if err := upgradeComponent(component, optVersion); err != nil {
 			fmt.Println(err)
 		}
 	},
 }
-
-var optVersion string
 
 func upgradeComponent(component string, version string) error {
 	cfg := &utils.UpgradeConfig{
@@ -47,6 +59,8 @@ func upgradeComponent(component string, version string) error {
 }
 
 func init() {
+	upgradeCmd.Flags().SortFlags = false
 	upgradeCmd.Flags().StringVarP(&optVersion, "version", "v", "", "指定要升级的目标版本")
+	upgradeCmd.Flags().StringVarP(&optComponent, "component", "c", "", "指定要升级的组件名称")
 	root.RootCmd.AddCommand(upgradeCmd)
 }

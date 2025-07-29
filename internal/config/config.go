@@ -42,11 +42,10 @@ type UpgradeConfig struct {
 var ErrComponentNotFound = errors.New("component not found")
 
 type AppConfig struct {
-	Server   ServerConfig    `mapstructure:"server"`
-	Log      LogConfig       `mapstructure:"log"`
-	Metrics  MetricsConfig   `mapstructure:"metrics"`
-	Upgrade  UpgradeConfig   `mapstructure:"upgrade"`
-	Services []ServiceConfig `mapstructure:"services"`
+	Server  ServerConfig  `mapstructure:"server"`
+	Log     LogConfig     `mapstructure:"log"`
+	Metrics MetricsConfig `mapstructure:"metrics"`
+	Upgrade UpgradeConfig `mapstructure:"upgrade"`
 }
 
 /**

@@ -37,7 +37,7 @@ costrict-keeper提供可靠性、可调试性辅助机制。
 
 ### 4.1. subsystem
 
-子系统定义文件(subsystem.json)格式：
+子系统定义文件(system-spec.json)格式：
 
 ```json
 {
@@ -83,19 +83,19 @@ costrict-keeper提供可靠性、可调试性辅助机制。
         "startup": "always",        //启动模式：always=常驻, once=运行一次, none=不自动运行
         "command": "codebase-syncer -s",//设定启动的命令行(比如服务模式启动codebase-syncer),如果不指定，则以不带参数方式启动
         "protocol": "http",         //服务对外接口协议
-        "port": "8080",             //建议服务端口，实际运行时根据客户端情况会调整
+        "port": 8080,             //建议服务端口，实际运行时根据客户端情况会调整
         "metrics": "/metrics",      //指标采集接口的地址
         "accessible": "local"       //可访问性：remote(远程访问)/local(本地访问)
     }, {
         "name": "codebase-indexer",
         "startup": "always",
         "protocol": "http",
-        "port": "8081"
+        "port": 8081
     }, {
         "name": "codebase-parser",
         "startup": "always",
         "protocol": "http",
-        "port": "8082"
+        "port": 8082
     }, {
         "name": "tunnel-client",
         "startup": "always"
@@ -118,7 +118,7 @@ costrict-keeper提供可靠性、可调试性辅助机制。
     "startup": "always",
     "status": "running",        //norun(未运行) -> running(运行中) -> stop(停止中) -> norun(未运行)
     "protocol": "http",         //服务对外接口协议
-    "port": "8080"              //服务端口
+    "port": 8080              //服务端口
 }
 ```
 
@@ -155,12 +155,12 @@ SystemKnownledge保存软件服务子系统的各项参数，该数据结构默�
         "name": "tunnel-client",
         "version": "1.1.0",
         "protocol": "http",         //服务对外接口协议
-        "port": "8080"              //服务端口
+        "port": 8080              //服务端口
     }, {
         "name": "costrict-keeper",
         "version": "1.0.0",
         "protocol": "http",
-        "port": "8081"
+        "port": 8081
     }]
 }
 ```
@@ -176,7 +176,7 @@ Storage是一个保存软件服务子系统数据的目录，位于`%APPDATA%/.c
           +-/package: 包安装记录区
           +-/logs: 日志区
           +-/share: 交换区(共享数据区,vscode扩展与子系统的数据交换)
-          +-/cached: 运行状态区(缓存costrict-keeper管理的组件&服务的状态，保证服务和CLI可以并发工作，无惧程序崩溃)
+          +-/cache: 运行状态区(缓存costrict-keeper管理的组件&服务的状态，保证服务和CLI可以并发工作，无惧程序崩溃)
 ```
 
 ## 5. 接口
@@ -265,21 +265,31 @@ costrict server --listen 8080 --config appdata/costrict.json
 costrict upgrade codebase-syncer --version 1.2.1
 ```
 
-#### 5.2.3. 启停服务
+#### 5.2.3. 启动服务
 
 ```sh
 costrict service start codebase-syncer
 ```
 
+#### 5.2.4. 停止服务
+
 ```sh
 costrict service stop codebase-syncer
 ```
+
+#### 5.2.5. 重启服务
 
 ```sh
 costrict service restart codebase-syncer
 ```
 
-#### 5.2.4. 生成服务.well-known.json文件
+#### 5.2.6. 查看服务和组件的信息
+
+```sh
+costrict list codebase-syncer
+```
+
+#### 5.2.7. 生成服务.well-known.json文件
 
 ```sh
 costrict service status --output ./service-statuses.json
@@ -287,7 +297,7 @@ costrict service status --output ./service-statuses.json
 
 output未指定，则默认保存到`%APPDATA%/.costrict/share/.well-known.json`
 
-#### 5.2.5. 上报日志
+#### 5.2.8. 上报日志
 
 采集并打包日志：
 
@@ -307,7 +317,7 @@ costrict logs upload [--addr upload-logs-addr]
 
 接收上报日志的API地址，由命令行参数addr指定，如果没有指定，从配置文件logs.addr中获取。
 
-#### 5.2.6. 上报指标
+#### 5.2.9. 上报指标
 
 ```sh
 costrict metrics [--addr pushgateway-api-addr]

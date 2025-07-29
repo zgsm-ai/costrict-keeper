@@ -1,8 +1,8 @@
 package main
 
 import (
-	_ "costrict-host/cmd"
-	"costrict-host/cmd/root"
+	_ "costrict-keeper/cmd"
+	"costrict-keeper/cmd/root"
 	"log"
 	"os"
 )

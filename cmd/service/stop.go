@@ -1,7 +1,8 @@
 package service
 
 import (
-	"costrict-host/services"
+	"costrict-keeper/cmd/root"
+	"costrict-keeper/services"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -18,6 +19,22 @@ var stopCmd = &cobra.Command{
 	},
 }
 
+/**
+ * Stop service by name
+ * @param {string} serviceName - Name of the service to stop
+ * @returns {error} Returns error if service stop fails, nil on success
+ * @description
+ * - Creates new service manager instance
+ * - Attempts to stop the specified service
+ * - Prints success message if service stops successfully
+ * @throws
+ * - Service stop failure errors
+ * @example
+ * err := stopService("codebase-syncer")
+ * if err != nil {
+ *     log.Fatal(err)
+ * }
+ */
 func stopService(serviceName string) error {
 	manager := services.NewServiceManager()
 	if err := manager.StopService(serviceName); err != nil {
@@ -28,5 +45,5 @@ func stopService(serviceName string) error {
 }
 
 func init() {
-	ServiceCmd.AddCommand(stopCmd)
+	root.RootCmd.AddCommand(stopCmd)
 }

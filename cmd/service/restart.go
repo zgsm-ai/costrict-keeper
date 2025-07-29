@@ -2,7 +2,8 @@ package service
 
 import (
 	"context"
-	"costrict-host/services"
+	"costrict-keeper/cmd/root"
+	"costrict-keeper/services"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -19,6 +20,23 @@ var restartCmd = &cobra.Command{
 	},
 }
 
+/**
+ * Restart service by name
+ * @param {context.Context} ctx - Context for request cancellation and timeout
+ * @param {string} serviceName - Name of the service to restart
+ * @returns {error} Returns error if service restart fails, nil on success
+ * @description
+ * - Creates new service manager instance
+ * - Attempts to restart the specified service
+ * - Prints success message if service restarts successfully
+ * @throws
+ * - Service restart failure errors
+ * @example
+ * err := restartService(context.Background(), "codebase-syncer")
+ * if err != nil {
+ *     log.Fatal(err)
+ * }
+ */
 func restartService(ctx context.Context, serviceName string) error {
 	manager := services.NewServiceManager()
 	if err := manager.RestartService(ctx, serviceName); err != nil {
@@ -29,5 +47,5 @@ func restartService(ctx context.Context, serviceName string) error {
 }
 
 func init() {
-	ServiceCmd.AddCommand(restartCmd)
+	root.RootCmd.AddCommand(restartCmd)
 }

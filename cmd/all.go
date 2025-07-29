@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	_ "costrict-host/cmd/logs"
-	_ "costrict-host/cmd/metrics"
-	_ "costrict-host/cmd/root"
-	_ "costrict-host/cmd/server"
-	_ "costrict-host/cmd/service"
-	_ "costrict-host/cmd/upgrade"
+	_ "costrict-keeper/cmd/logs"
+	_ "costrict-keeper/cmd/metrics"
+	_ "costrict-keeper/cmd/root"
+	_ "costrict-keeper/cmd/server"
+	_ "costrict-keeper/cmd/service"
+	_ "costrict-keeper/cmd/upgrade"
 )

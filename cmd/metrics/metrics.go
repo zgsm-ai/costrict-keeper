@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"costrict-host/cmd/root"
-	"costrict-host/internal/config"
-	"costrict-host/services"
+	"costrict-keeper/cmd/root"
+	"costrict-keeper/internal/config"
+	"costrict-keeper/services"
 
 	"github.com/spf13/cobra"
 )
@@ -17,6 +17,7 @@ var (
 
 func init() {
 	root.RootCmd.AddCommand(Cmd)
+	Cmd.Flags().SortFlags = false
 	Cmd.Flags().StringVarP(&pushGatewayAddr, "addr", "a", "", "Pushgateway地址")
 	Cmd.Flags().DurationP("timeout", "t", 30*time.Second, "指标采集超时时间")
 }
