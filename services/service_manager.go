@@ -2,33 +2,32 @@ package services
 
 import (
 	"context"
-	"costrict-keeper/internal/config"
-	"costrict-keeper/internal/models"
-	"costrict-keeper/internal/utils"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
+
+	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/logger"
+	"costrict-keeper/internal/models"
+	"costrict-keeper/internal/utils"
 )
 
 type ServiceManager struct {
-	Services    []models.ServiceConfig
-	upgradeFn   func(*utils.UpgradeConfig, utils.VersionNumber, *utils.VersionNumber) error
+	Services    []models.ServiceSpecification
 	runningSvcs map[string]*ServiceInstance
 }
 
 /**
  * Get all registered services
- * @returns {[]models.ServiceConfig} Returns slice of service configurations
+ * @returns {[]models.ServiceSpecification} Returns slice of service configurations
  * @description
  * - Returns current list of managed services
  * - Includes service names, versions, protocols, ports and startup commands
  */
-func (sm *ServiceManager) GetServices() []models.ServiceConfig {
+func (sm *ServiceManager) GetServices() []models.ServiceSpecification {
 	return sm.Services
 }
 
@@ -48,9 +47,9 @@ func (sm *ServiceManager) GetComponents() ([]models.ComponentInfo, error) {
 	// 获取服务作为组件信息
 	for _, svc := range sm.Services {
 		components = append(components, models.ComponentInfo{
-			Name:    svc.Name,
-			Version: "unknown", // 新的结构体中没有版本信息
-			Path:    svc.Command,
+			Name:      svc.Name,
+			Version:   "unknown", // 从服务配置中获取版本信息
+			Installed: true,      // 假设服务已安装
 		})
 	}
 	return components, nil
@@ -72,7 +71,7 @@ func (sm *ServiceManager) GetComponents() ([]models.ComponentInfo, error) {
 func (sm *ServiceManager) UpgradeComponent(name string) error {
 	// 实现组件升级逻辑
 	// 获取组件配置
-	var svc *models.ServiceConfig
+	var svc *models.ServiceSpecification
 	for _, s := range sm.Services {
 		if s.Name == name {
 			svc = &s
@@ -84,12 +83,20 @@ func (sm *ServiceManager) UpgradeComponent(name string) error {
 	}
 
 	// 解析版本号 - 由于新结构体中没有版本信息，使用默认版本
-	ver, err := utils.ParseVersion("1.0.0")
+	upgradeCfg := utils.UpgradeConfig{PackageName: name}
+	upgradeCfg.Correct()
+	curVer, _ := utils.GetLocalVersion(upgradeCfg)
+	retVer, err := utils.UpgradePackage(upgradeCfg, curVer, nil)
 	if err != nil {
+		logger.Errorf("The '%s' upgrade failed: %v", name, err)
 		return err
 	}
-	upgradeCfg := utils.UpgradeConfig{PackageName: name}
-	return sm.upgradeFn(&upgradeCfg, ver, nil)
+	if utils.CompareVersion(retVer, curVer) == 0 {
+		logger.Infof("The '%s' version is up to date\n", name)
+	} else {
+		logger.Infof("The '%s' is upgraded to version %s\n", name, utils.PrintVersion(retVer))
+	}
+	return err
 }
 
 /**
@@ -135,32 +142,6 @@ func (sm *ServiceManager) IsServiceHealthy(name string) bool {
 	return false
 }
 
-/**
- * Get all service endpoints with health status
- * @returns {[]models.ServiceEndpoint} Returns slice of service endpoints
- * @description
- * - Creates endpoint for each service with name and URL
- * - Includes health status for each endpoint
- * - URL format: protocol://localhost:port
- * - Returns empty slice if no services exist
- */
-func (sm *ServiceManager) GetEndpoints() []models.ServiceEndpoint {
-	endpoints := make([]models.ServiceEndpoint, 0)
-	for _, svc := range sm.Services {
-		// 构建URL，确保端口有效
-		url := ""
-		if svc.Protocol != "" && svc.Port > 0 {
-			url = fmt.Sprintf("%s://localhost:%d", svc.Protocol, svc.Port)
-		}
-		endpoints = append(endpoints, models.ServiceEndpoint{
-			Name:    svc.Name,
-			URL:     url,
-			Healthy: sm.IsServiceHealthy(svc.Name),
-		})
-	}
-	return endpoints
-}
-
 type ServiceInstance struct {
 	PID     int
 	Command *exec.Cmd
@@ -182,45 +163,47 @@ type ServiceInstance struct {
  * - Response body reading errors
  * - JSON unmarshaling errors
  * @example
- * config, err := LoadRemoteServicesConfig("https://example.com/config.json")
+ * config, err := FetchRemoteSubsystemConfig()
  * if err != nil {
- *     log.Fatal(err)
+ *     logger.Fatal(err)
  * }
  */
-func LoadRemoteServicesConfig(url string) (*models.SubsystemConfig, error) {
-	resp, err := http.Get(url)
+func FetchRemoteSubsystemConfig() error {
+	cfg := utils.UpgradeConfig{}
+	cfg.PackageName = "subsystem"
+	cfg.TargetPath = filepath.Join(config.Config.Directory.Share, "system-spec.json")
+	cfg.Correct()
+
+	curVer, _ := utils.GetLocalVersion(cfg)
+	retVer, err := utils.UpgradePackage(cfg, curVer, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch remote config: %v", err)
+		logger.Errorf("fetch config failed: %v", err)
+		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	if utils.CompareVersion(retVer, curVer) == 0 {
+		logger.Infof("The '%s' version is up to date\n", cfg.PackageName)
+	} else {
+		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(retVer))
 	}
+	return nil
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	var config models.SubsystemConfig
-	if err := json.Unmarshal(body, &config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %v", err)
-	}
-
-	return &config, nil
 }
 
-func (sm *ServiceManager) LoadConfig() {
-	// 加载远程服务配置，如果无法加载则使用本地配置
-	servicesAddr := fmt.Sprintf("%s/costrict-keeper/system-spec.json", config.Config.Upgrade.BaseUrl)
-	remoteCfg, err := LoadRemoteServicesConfig(servicesAddr)
+func (sm *ServiceManager) LoadConfig() error {
+	FetchRemoteSubsystemConfig()
+
+	fname := filepath.Join(config.Config.Directory.Share, "system-spec.json")
+
+	bytes, err := os.ReadFile(fname)
 	if err != nil {
-		log.Printf("fetch config failed: %v", err)
-		return
-	} else {
-		sm.Services = remoteCfg.Services
+		return fmt.Errorf("load 'system-spec.json' failed: %v", err)
 	}
+	var spec models.SystemSpecification
+	if err := json.Unmarshal(bytes, &spec); err != nil {
+		return fmt.Errorf("unmarshal 'system-spec.json' failed: %v", err)
+	}
+	sm.Services = spec.Services
+	return nil
 }
 
 func (sm *ServiceManager) StartAll(ctx context.Context) error {
@@ -236,7 +219,7 @@ func (sm *ServiceManager) StartAll(ctx context.Context) error {
 }
 
 func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
-	var svcConfig *models.ServiceConfig
+	var svcConfig *models.ServiceSpecification
 	for _, svc := range sm.Services {
 		if svc.Name == name {
 			svcConfig = &svc
@@ -258,19 +241,23 @@ func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
 		return fmt.Errorf("service %s is already running", name)
 	}
 
-	// 首先尝试升级服务到最新版本
-	ver, err := utils.ParseVersion("1.0.0") // 使用默认版本
-	if err != nil {
-		return fmt.Errorf("failed to parse version for service %s: %v", name, err)
-	}
 	upgradeCfg := utils.UpgradeConfig{
 		PackageName: name,
-		TargetName:  svcConfig.Command,
+		TargetPath:  svcConfig.Command,
 	}
-	if err := sm.upgradeFn(&upgradeCfg, ver, nil); err != nil {
-		return fmt.Errorf("failed to upgrade service %s: %v", name, err)
+	upgradeCfg.Correct()
+	// 首先尝试升级服务到最新版本
+	curVer, _ := utils.GetLocalVersion(upgradeCfg)
+	retVer, err := utils.UpgradePackage(upgradeCfg, curVer, nil)
+	if err != nil {
+		logger.Errorf("The '%s' upgrade failed: %v", name, err)
+		return err
 	}
-
+	if utils.CompareVersion(retVer, curVer) == 0 {
+		logger.Infof("The '%s' version is up to date\n", name)
+	} else {
+		logger.Infof("The '%s' is upgraded to version %s\n", name, utils.PrintVersion(retVer))
+	}
 	// 启动服务进程
 	cmd := exec.CommandContext(ctx, svcConfig.Command)
 	if err := cmd.Start(); err != nil {
@@ -297,7 +284,7 @@ func (sm *ServiceManager) RestartService(ctx context.Context, name string) error
 
 func (sm *ServiceManager) StopService(name string) error {
 	// 检查服务是否存在
-	var svcConfig *models.ServiceConfig
+	var svcConfig *models.ServiceSpecification
 	for _, svc := range sm.Services {
 		if svc.Name == name {
 			svcConfig = &svc
@@ -340,7 +327,6 @@ func (sm *ServiceManager) CheckServices() error {
 
 func NewServiceManager() *ServiceManager {
 	sm := &ServiceManager{
-		upgradeFn:   utils.UpgradePackage,
 		runningSvcs: make(map[string]*ServiceInstance),
 	}
 	sm.LoadConfig()

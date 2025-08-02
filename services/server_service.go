@@ -1,9 +1,10 @@
 package services
 
 import (
-	"costrict-keeper/internal/config"
-	"log"
 	"time"
+
+	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/logger"
 )
 
 type ServerService struct {
@@ -20,10 +21,10 @@ func (s *ServerService) StartMonitoring(svcManager *ServiceManager) {
 
 	for range ticker.C {
 		if err := svcManager.CheckServices(); err != nil {
-			log.Printf("Service monitoring error: %v", err)
+			logger.Errorf("Service monitoring error: %v", err)
 		}
 		if err := s.ReportMetrics(); err != nil {
-			log.Printf("Metrics reporting error: %v", err)
+			logger.Errorf("Metrics reporting error: %v", err)
 		}
 	}
 }
@@ -34,7 +35,7 @@ func (s *ServerService) StartLogReporting() {
 
 	for range ticker.C {
 		if err := s.ReportLogs(); err != nil {
-			log.Printf("Log reporting error: %v", err)
+			logger.Errorf("Log reporting error: %v", err)
 		}
 	}
 }

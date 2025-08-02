@@ -5,9 +5,9 @@ import (
 	"costrict-keeper/cmd/root"
 	"costrict-keeper/controllers"
 	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/logger"
 	"costrict-keeper/services"
 	"fmt"
-	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
@@ -20,7 +20,7 @@ var serverCmd = &cobra.Command{
 	Short: "启动HTTP服务",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := startServer(context.Background()); err != nil {
-			log.Fatal(err)
+			logger.Fatal(err)
 		}
 	},
 }
@@ -43,7 +43,7 @@ var serverCmd = &cobra.Command{
  * @example
  * err := startServer(context.Background())
  * if err != nil {
- *     log.Fatal(err)
+ *     logger.Fatal(err)
  * }
  */
 func startServer(ctx context.Context) error {

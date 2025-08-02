@@ -1,4 +1,4 @@
-package upgrade
+package component
 
 import (
 	"costrict-keeper/cmd/root"
@@ -34,12 +34,11 @@ var upgradeCmd = &cobra.Command{
 }
 
 func upgradeComponent(component string, version string) error {
-	cfg := &utils.UpgradeConfig{
+	cfg := utils.UpgradeConfig{
 		PackageName: component,
 	}
-
-	// 假设当前版本号为1.0.0，实际项目中应从配置或系统中获取
-	curVer, _ := utils.ParseVersion("1.0.0")
+	cfg.Correct()
+	curVer, _ := utils.GetLocalVersion(cfg)
 
 	var specVer *utils.VersionNumber
 	if version != "" {
@@ -50,11 +49,16 @@ func upgradeComponent(component string, version string) error {
 		specVer = &v
 	}
 
-	if err := utils.UpgradePackage(cfg, curVer, specVer); err != nil {
-		return fmt.Errorf("升级组件%s失败: %v", component, err)
+	retVer, err := utils.UpgradePackage(cfg, curVer, specVer)
+	if err != nil {
+		fmt.Printf("The '%s' upgrade failed: %v", component, err)
+		return err
 	}
-
-	fmt.Printf("组件 %s 升级成功\n", component)
+	if utils.CompareVersion(retVer, curVer) == 0 {
+		fmt.Printf("The '%s' version is up to date\n", component)
+	} else {
+		fmt.Printf("The '%s' is upgraded to version %s\n", component, utils.PrintVersion(retVer))
+	}
 	return nil
 }
 

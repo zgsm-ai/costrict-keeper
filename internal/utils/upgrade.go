@@ -1,12 +1,13 @@
 package utils
 
 import (
+	"bufio"
+	"costrict-keeper/internal/logger"
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +16,17 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
+)
+
+/**
+ *	包类型枚举
+ */
+type PackageType string
+
+const (
+	PackageTypeExec PackageType = "exec"
+	PackageTypeConf PackageType = "conf"
 )
 
 /**
@@ -31,6 +43,8 @@ type VersionNumber struct {
  */
 type PackageInfo struct {
 	PackageName  string        `json:"packageName"`    //包名字
+	PackageType  PackageType   `json:"packageType"`    //包类型: exec/conf
+	FileName     string        `json:"fileName"`       //被打包的文件的名字
 	Os           string        `json:"os"`             //操作系统名:linux/windows
 	Arch         string        `json:"arch"`           //硬件架构
 	Size         uint64        `json:"size,omitempty"` //包文件大小
@@ -39,23 +53,22 @@ type PackageInfo struct {
 	ChecksumAlgo string        `json:"checksumAlgo"`   //固定为“md5”
 	VersionId    VersionNumber `json:"versionId"`      //版本号，采用SemVer标准
 	Build        string        `json:"build"`          //构建信息：Tag/Branch信息 CommitID BuildTime
-	VersionDesc  string        `json:"versionDesc"`    //版本描述，含有更丰富的可读信息
+	Description  string        `json:"description"`    //版本描述，含有更丰富的可读信息
 }
 
 /**
  *	一个package版本的地址信息
  */
 type VersionAddr struct {
-	VersionId  VersionNumber `json:"versionId"`            //版本的地址信息
-	AppUrl     string        `json:"appUrl"`               //包地址
-	PackageUrl string        `json:"packageUrl,omitempty"` //obsolete field: (过时的)包地址，用来兼容历史版本
-	InfoUrl    string        `json:"infoUrl"`              //包描述信息(PackageInfo)文件的地址
+	VersionId VersionNumber `json:"versionId"` //版本的地址信息
+	AppUrl    string        `json:"appUrl"`    //包地址
+	InfoUrl   string        `json:"infoUrl"`   //包描述信息(PackageInfo)文件的地址
 }
 
 /**
  *	版本列表，描述一个硬件平台/操作系统对应的包列表
  */
-type VersionList struct {
+type PlatformInfo struct {
 	PackageName string        `json:"packageName"`
 	Os          string        `json:"os"`
 	Arch        string        `json:"arch"`
@@ -69,7 +82,7 @@ type UpgradeConfig struct {
 	InstallDir  string //软件包的安装路径
 	PackageDir  string //保存下载软件包的包描述文件
 	PackageName string //包名称
-	TargetName  string //目标名称
+	TargetPath  string //指定安装目标路径(及文件名)
 	Os          string //操作系统名
 	Arch        string //硬件平台名
 }
@@ -86,17 +99,51 @@ vwIDAQAB
 
 const SHENMA_BASE_URL = "https://zgsm.sangfor.com/shenma/api/v1"
 
+func (cfg *UpgradeConfig) Correct() {
+	if cfg.PackageName == "" {
+		panic("UpgradeConfig.PackageName is emptied")
+	}
+	if cfg.Arch == "" {
+		cfg.Arch = runtime.GOARCH
+	}
+	if cfg.Os == "" {
+		cfg.Os = runtime.GOOS
+	}
+	if runtime.GOOS == "windows" {
+		appData := os.Getenv("APPDATA")
+		if cfg.InstallDir == "" {
+			cfg.InstallDir = filepath.Join(appData, ".costrict\\bin")
+		}
+		if cfg.PackageDir == "" {
+			cfg.PackageDir = filepath.Join(appData, ".costrict\\package")
+		}
+	} else if runtime.GOOS == "linux" {
+		if cfg.InstallDir == "" {
+			cfg.InstallDir = "/usr/local/.costrict/bin"
+		}
+		if cfg.PackageDir == "" {
+			cfg.PackageDir = "/usr/local/.costrict/package"
+		}
+	}
+	if cfg.BaseUrl == "" {
+		cfg.BaseUrl = SHENMA_BASE_URL
+	}
+	if cfg.PublicKey == "" {
+		cfg.PublicKey = SHENMA_PUBLIC_KEY
+	}
+}
+
 /**
- *	从AIP获取一个文件
+ *	从云端获取一个文件的内容
  */
-func getBytes(urlStr string, params map[string]string) ([]byte, error) {
+func GetBytes(urlStr string, params map[string]string) ([]byte, error) {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client := &http.Client{Transport: tr}
 	req, err := http.NewRequest("GET", urlStr, nil)
 	if err != nil {
-		return []byte{}, fmt.Errorf("getBytes: %v", err)
+		return []byte{}, fmt.Errorf("GetBytes: %v", err)
 	}
 	vals := make(url.Values)
 	for k, v := range params {
@@ -106,12 +153,12 @@ func getBytes(urlStr string, params map[string]string) ([]byte, error) {
 
 	rsp, err := client.Do(req)
 	if err != nil {
-		return []byte{}, fmt.Errorf("getBytes: %v", err)
+		return []byte{}, fmt.Errorf("GetBytes: %v", err)
 	}
 	defer rsp.Body.Close()
 	if rsp.StatusCode != 200 {
 		rspBody, _ := io.ReadAll(rsp.Body)
-		return rspBody, fmt.Errorf("getBytes('%s?%s') code:%d, error:%s",
+		return rspBody, fmt.Errorf("GetBytes('%s?%s') code:%d, error:%s",
 			urlStr, req.URL.RawQuery, rsp.StatusCode, string(rspBody))
 	}
 	return io.ReadAll(rsp.Body)
@@ -205,17 +252,33 @@ func PrintVersion(ver VersionNumber) string {
 }
 
 /**
+ *	获取本地已安装包的版本
+ */
+func GetLocalVersion(cfg UpgradeConfig) (VersionNumber, error) {
+	packageFileName := filepath.Join(cfg.PackageDir, fmt.Sprintf("%s.json", cfg.PackageName))
+	var pkg PackageInfo
+	bytes, err := os.ReadFile(packageFileName)
+	if err != nil {
+		return VersionNumber{}, err
+	}
+	if err := json.Unmarshal(bytes, &pkg); err != nil {
+		return VersionNumber{}, err
+	}
+	return pkg.VersionId, nil
+}
+
+/**
  *	从远程库获取包版本
  */
-func GetRemoteVersions(cfg *UpgradeConfig) (VersionList, error) {
-	urlStr := fmt.Sprintf("%s/%s/packages-%s-%s.json",
+func GetRemoteVersions(cfg UpgradeConfig) (PlatformInfo, error) {
+	urlStr := fmt.Sprintf("%s/%s/%s/%s/packages.json",
 		cfg.BaseUrl, cfg.PackageName, cfg.Os, cfg.Arch)
 
-	bytes, err := getBytes(urlStr, nil)
+	bytes, err := GetBytes(urlStr, nil)
 	if err != nil {
-		return VersionList{}, err
+		return PlatformInfo{}, err
 	}
-	vers := &VersionList{}
+	vers := &PlatformInfo{}
 	if err = json.Unmarshal(bytes, vers); err != nil {
 		return *vers, fmt.Errorf("GetRemoteVersion('%s') unmarshal error: %v", urlStr, err)
 	}
@@ -235,167 +298,246 @@ func CompareVersion(local, remote VersionNumber) int {
 	return local.Micro - remote.Micro
 }
 
-func correctConfig(cfg *UpgradeConfig) {
-	if cfg.PackageName == "" {
-		panic("UpgradeConfig.PackageName is emptied")
+/**
+ *	获取costrict目录结构设定
+ */
+func GetCostrictDir() (baseDir, installDir, packageDir string) {
+	baseDir = "/usr/local/.costrict"
+	if runtime.GOOS == "windows" {
+		appData := os.Getenv("APPDATA")
+		baseDir = filepath.Join(appData, ".costrict")
+	} else if runtime.GOOS == "linux" {
+		baseDir = "/usr/local/.costrict"
 	}
-	if cfg.Arch == "" {
-		cfg.Arch = runtime.GOARCH
-	}
-	if cfg.Os == "" {
-		cfg.Os = runtime.GOOS
-	}
-	if cfg.InstallDir == "" {
-		if runtime.GOOS == "windows" {
-			cfg.InstallDir = filepath.Join(os.Getenv("APPDATA"), ".costrict\\bin")
-		} else if runtime.GOOS == "linux" {
-			cfg.InstallDir = "/usr/local/bin"
-		}
-	}
-	if cfg.PackageDir == "" {
-		if runtime.GOOS == "windows" {
-			cfg.PackageDir = filepath.Join(os.Getenv("APPDATA"), ".costrict\\package")
-		} else if runtime.GOOS == "linux" {
-			cfg.PackageDir = "/usr/local/.costrict/package"
-		}
-	}
-	if cfg.BaseUrl == "" {
-		cfg.BaseUrl = SHENMA_BASE_URL
-	}
-	if cfg.PublicKey == "" {
-		cfg.PublicKey = SHENMA_PUBLIC_KEY
-	}
-	if cfg.TargetName == "" {
-		cfg.TargetName = cfg.PackageName
-	}
+	installDir = filepath.Join(baseDir, "bin")
+	packageDir = filepath.Join(baseDir, "package")
+	return baseDir, installDir, packageDir
 }
 
 /**
  *	升级包
  */
-func UpgradePackage(cfg *UpgradeConfig, curVer VersionNumber, specVer *VersionNumber) error {
-	correctConfig(cfg)
-	//	获取AIP平台上的最新版本
+func UpgradePackage(cfg UpgradeConfig, curVer VersionNumber, specVer *VersionNumber) (VersionNumber, error) {
+	var zero VersionNumber
+	//	获取云端的最新版本
 	vers, err := GetRemoteVersions(cfg)
 	if err != nil {
-		return err
+		return zero, err
 	}
 	addr := VersionAddr{}
 	if specVer != nil { //升级指定版本
 		//	检查指定版本specVer在不在版本列表中
+		found := false
 		for _, v := range vers.Versions {
 			if CompareVersion(v.VersionId, *specVer) == 0 {
 				addr = v
+				found = true
 				break
 			}
 		}
-		zeroVer := VersionNumber{}
-		if CompareVersion(addr.VersionId, zeroVer) == 0 {
-			return fmt.Errorf("version %s isn't exist", PrintVersion(*specVer))
+		if !found {
+			return zero, fmt.Errorf("version %s isn't exist", PrintVersion(*specVer))
 		}
 	} else { //升级最新版本
 		//	比较当前最新版本，看是否有必要升级
 		ret := CompareVersion(curVer, vers.Newest.VersionId)
 		if ret >= 0 {
-			fmt.Printf("The aip version is up to date\n")
-			return nil
+			return curVer, nil
 		}
 		addr = vers.Newest
 	}
-	//	获取AIP平台上升级包的描述信息
-	data, err := getBytes(cfg.BaseUrl+addr.InfoUrl, nil)
+	//	获取云端升级包的描述信息
+	data, err := GetBytes(cfg.BaseUrl+addr.InfoUrl, nil)
 	if err != nil {
-		return err
+		return zero, err
 	}
 	pkg := &PackageInfo{}
 	if err = json.Unmarshal(data, pkg); err != nil {
-		return fmt.Errorf("unmarshal '%s' error: %v", addr.InfoUrl, err)
+		return zero, fmt.Errorf("unmarshal '%s' error: %v", addr.InfoUrl, err)
+	}
+	if pkg.FileName == "" {
+		pkg.FileName = pkg.PackageName
 	}
 	//	下载包
 	tmpDir, err := os.MkdirTemp("", ".costrict*")
 	if err != nil {
-		return fmt.Errorf("MkdirTemp error: %v", err)
+		return zero, fmt.Errorf("MkdirTemp error: %v", err)
 	}
-	tmpFname := filepath.Join(tmpDir, cfg.TargetName)
+	tmpFname := filepath.Join(tmpDir, pkg.FileName)
 	if err = getFile(cfg.BaseUrl+addr.AppUrl, nil, tmpFname); err != nil {
-		return err
+		return zero, err
 	}
 	//	检查下载包的MD5
 	_, md5str, err := CalcFileMd5(tmpFname)
 	if err != nil {
-		return err
+		return zero, err
 	}
 	if md5str != pkg.Checksum {
-		return fmt.Errorf("checksum error: %s", addr.AppUrl)
+		return zero, fmt.Errorf("checksum error: %s", addr.AppUrl)
 	}
 	//	检查签名，防止包被篡改
 	sig, err := hex.DecodeString(pkg.Sign)
 	if err != nil {
-		return fmt.Errorf("decode sign error: %v", err)
+		return zero, fmt.Errorf("decode sign error: %v", err)
 	}
 	if err = VerifySign([]byte(cfg.PublicKey), sig, []byte(md5str)); err != nil {
-		return fmt.Errorf("verify sign error: %v", err)
+		return zero, fmt.Errorf("verify sign error: %v", err)
 	}
 	if err = os.MkdirAll(cfg.InstallDir, 0775); err != nil {
-		return fmt.Errorf("MkdirAll('%s') error: %v", cfg.InstallDir, err)
+		return zero, fmt.Errorf("MkdirAll('%s') error: %v", cfg.InstallDir, err)
 	}
-	//	把下载的aip程序安装到正式目录
-	targetFileName := filepath.Join(cfg.InstallDir, cfg.TargetName)
-	if err = installExecute(targetFileName, tmpFname); err != nil {
-		return fmt.Errorf("installExecute('%s', '%s') error: %v", targetFileName, tmpFname, err)
+	if err = os.MkdirAll(cfg.PackageDir, 0775); err != nil {
+		return zero, fmt.Errorf("MkdirAll('%s') error: %v", cfg.PackageDir, err)
+	}
+	//	把下载的包安装到正式目录
+	if err = installPackage(cfg, *pkg, tmpFname); err != nil {
+		return zero, fmt.Errorf("installPackage('%s') error: %v", tmpFname, err)
 	}
 	//	把包描述文件保存到包文件目录
-	packageFileName := filepath.Join(cfg.PackageDir, cfg.PackageName, ".json")
-	if err = os.WriteFile(packageFileName, data, 0755); err != nil {
-		log.Printf("write package file(%s) failed: %s", packageFileName, err.Error())
+	savePackageJson(cfg, *pkg, data)
+	os.RemoveAll(tmpDir)
+	return pkg.VersionId, nil
+}
+
+/**
+ *	保存包描述文件
+ */
+func savePackageJson(cfg UpgradeConfig, pkg PackageInfo, data []byte) {
+	packageFileName := filepath.Join(cfg.PackageDir,
+		fmt.Sprintf("%s-%s.json", cfg.PackageName, PrintVersion(pkg.VersionId)))
+	if err := os.WriteFile(packageFileName, data, 0644); err != nil {
+		logger.Errorf("Write package file(%s) failed: %v", packageFileName, err)
+	}
+	packageFileName = filepath.Join(cfg.PackageDir, fmt.Sprintf("%s.json", cfg.PackageName))
+	if err := os.WriteFile(packageFileName, data, 0644); err != nil {
+		logger.Errorf("Write package file(%s) failed: %v", packageFileName, err)
+	}
+}
+
+/**
+ *	保存包数据文件
+ */
+func savePackageData(cfg UpgradeConfig, pkg PackageInfo, tmpFname string) error {
+	var targetFileName string
+	if cfg.TargetPath != "" {
+		targetFileName = cfg.TargetPath
+	} else {
+		targetFileName = filepath.Join(cfg.InstallDir, pkg.FileName)
+	}
+	os.Remove(targetFileName)
+	if err := os.Rename(tmpFname, targetFileName); err != nil {
+		return err
+	}
+	if pkg.PackageType != PackageTypeExec {
+		return nil
+	}
+	return os.Chmod(targetFileName, 0755)
+}
+
+/**
+ *	在windows上设置PATH变量，让新安装的程序可以被执行
+ */
+func windowsSetPATH(installDir string) error {
+	paths := os.Getenv("PATH")
+	if !strings.Contains(paths, installDir) {
+		newPath := fmt.Sprintf("%s;%s", paths, installDir)
+		cmd := exec.Command("setx", "PATH", newPath)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // 隐藏命令窗口
+		if err := cmd.Run(); err != nil {
+			return err
+		}
+		os.Setenv("PATH", newPath)
 	}
 	return nil
 }
 
-const BATFILE_SETENV = `setx PATH "%%PATH%%;%s"
-sleep 1
-del "%s"
-copy "%s" "%s"
-del /S "%s"
-del _aip_install.bat
-`
-const BATFILE_HASENV = `sleep 1
-del "%s"
-copy "%s" "%s"
-del /S "%s"
-del _aip_install.bat
-`
+/**
+ *	在linux上设置PATH变量，让新安装的程序可以被执行
+ */
+func linuxSetPATH(installDir string) error {
+	currentPath := os.Getenv("PATH")
+	// 检查是否已经包含该路径
+	currentPathStr := strings.TrimSpace(currentPath)
+	if strings.Contains(currentPathStr, installDir) {
+		logger.Info("The path is already in PATH.")
+		return nil
+	}
+	// 将新路径添加到 PATH
+	newPathStr := fmt.Sprintf("%s:%s", currentPathStr, installDir)
+	err := os.Setenv("PATH", newPathStr)
+	if err != nil {
+		fmt.Println("Failed to set PATH for current process:", err)
+		return err
+	}
+	// 获取当前用户的主目录
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		logger.Errorf("Failed to get user home directory: %v", err)
+		return err
+	}
+	envLine := fmt.Sprintf("export PATH=$PATH:%s", installDir)
+
+	bashrcPath := homeDir + "/.bashrc"
+	// 检查是否已经包含该环境变量
+	file, err := os.Open(bashrcPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.Errorf("Failed to open ~/.bashrc: %v", err)
+			return err
+		}
+		// 文件不存在，创建一个空文件
+		file, err = os.Create(bashrcPath)
+		if err != nil {
+			logger.Errorf("Failed to create ~/.bashrc: %v", err)
+			return err
+		}
+		file.Close()
+	} else {
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			if strings.Contains(scanner.Text(), envLine) {
+				file.Close()
+				logger.Info("Environment variable already exists in ~/.bashrc.")
+				return nil
+			}
+		}
+		file.Close()
+		if err := scanner.Err(); err != nil {
+			logger.Errorf("Failed to read ~/.bashrc: %v", err)
+			return err
+		}
+	}
+	// 将环境变量追加到 ~/.bashrc 文件
+	file, err = os.OpenFile(bashrcPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		logger.Errorf("Failed to open ~/.bashrc for appending: %v", err)
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(envLine + "\n")
+	if err != nil {
+		logger.Errorf("Failed to write environment variable to ~/.bashrc: %v", err)
+		return err
+	}
+
+	logger.Info("Environment variable added to ~/.bashrc successfully.")
+	return nil
+}
 
 /**
- *	把可执行文件安装到应用目录，并保证该程序为可执行状态(比如需要设置PATH和权限位)
+ *	安装包数据
  */
-func installExecute(targetFileName, tmpFname string) error {
-	if runtime.GOOS == "windows" {
-		binDir := filepath.Dir(targetFileName)
-		tmpDir := filepath.Dir(tmpFname)
-		paths := os.Getenv("PATH")
-
-		var fcontent string
-		if !strings.Contains(paths, binDir) {
-			fcontent = fmt.Sprintf(BATFILE_SETENV,
-				binDir, targetFileName, tmpFname, targetFileName, tmpDir)
-		} else {
-			fcontent = fmt.Sprintf(BATFILE_HASENV,
-				targetFileName, tmpFname, targetFileName, tmpDir)
-		}
-
-		if err := os.WriteFile("_aip_install.bat", []byte(fcontent), 0666); err != nil {
-			return err
-		}
-		cmd := exec.Command("_aip_install.bat")
-		if err := cmd.Start(); err != nil {
-			return err
-		}
+func installPackage(cfg UpgradeConfig, pkg PackageInfo, tmpFname string) error {
+	if err := savePackageData(cfg, pkg, tmpFname); err != nil {
+		return err
+	}
+	if pkg.PackageType != PackageTypeExec {
 		return nil
+	}
+	if runtime.GOOS == "windows" {
+		return windowsSetPATH(cfg.InstallDir)
 	} else {
-		if err := os.Rename(tmpFname, targetFileName); err != nil {
-			return err
-		}
-		return os.Chmod(targetFileName, 0777)
+		return linuxSetPATH(cfg.InstallDir)
 	}
 }

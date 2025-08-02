@@ -35,9 +35,20 @@ costrict-keeper提供可靠性、可调试性辅助机制。
 
 ## 4. 结构设计
 
+### 4.0. 整体说明
+
+costrict-keeper管理costrict移动端子系统的软件环境，包含以下类型：
+
+- SystemSpecification: 系统定义，该类型定义一个子系统的构成。定义某个版本的移动子系统，应该包含哪些组件，以及服务。SystemSpecification中组件定义的类型是ComponentSpecification，服务定义的类型是ServiceSpecification；
+- Component: 组件，该类型记录一个组件的状态，比如是否已安装到本地，本地版本号等；
+- Service: 服务，服务是一种需要自动运行的组件
+- SystemKnownledge: 信息关键信息，主要包含服务的关键信息，即Service
+
 ### 4.1. subsystem
 
-子系统定义文件(system-spec.json)格式：
+系统定义SystemSpecification序列化为JSON文件(system-spec.json)，放在云端，供各个移动端下载。
+
+JSON文件格式：
 
 ```json
 {
@@ -45,7 +56,7 @@ costrict-keeper提供可靠性、可调试性辅助机制。
     "platform": "windows",      //配置文件适用的平台
     "arch": "amd64",            //配置文件适用的平台
     "version": "1.2.0",         //配置描述的软件包的版本，即构建出来的windows子系统的版本
-    "manager": {                //服务管理器本身
+    "manager": {                //服务管理器本身，服务管理器本身也是一个服务
         "name": "costrict-keeper",
         "version": "^1.0.0",
         "upgrade": {
@@ -54,7 +65,7 @@ costrict-keeper提供可靠性、可调试性辅助机制。
             "highest": "1.2.3"  //最高版本，超过该版本不自动升级
         }
     },
-    "components": [{            //需要costrict-keeper管理的组件&服务程序
+    "components": [{            //需要costrict-keeper管理的组件
         "name": "codebase-syncer",  //程序名称
         "version": "^1.0.0",    //可支持版本范围
         "upgrade": {
@@ -83,8 +94,9 @@ costrict-keeper提供可靠性、可调试性辅助机制。
         "startup": "always",        //启动模式：always=常驻, once=运行一次, none=不自动运行
         "command": "codebase-syncer -s",//设定启动的命令行(比如服务模式启动codebase-syncer),如果不指定，则以不带参数方式启动
         "protocol": "http",         //服务对外接口协议
-        "port": 8080,             //建议服务端口，实际运行时根据客户端情况会调整
+        "port": 8080,               //建议服务端口，实际运行时根据客户端情况会调整
         "metrics": "/metrics",      //指标采集接口的地址
+        "healthy": "/healthy",      //服务可访问性检测接口
         "accessible": "local"       //可访问性：remote(远程访问)/local(本地访问)
     }, {
         "name": "codebase-indexer",
@@ -138,6 +150,8 @@ costrict-keeper提供可靠性、可调试性辅助机制。
 
 SystemKnownledge保存软件服务子系统的各项参数，该数据结构默认序列化为`%APPDATA%/.costrict/share/.well-known.json`
 
+序列化后格式如下：
+
 ```json
 {
     "logs": {
@@ -147,20 +161,19 @@ SystemKnownledge保存软件服务子系统的各项参数，该数据结构默�
     "services": [{
         "name": "tunnel-client",
         "version": "1.1.0",
-        "installed": true,
-        "startup": "always",
-        "status": "running"     //norun(未运行) -> running(运行中) -> stop(停止中) -> norun(未运行)
-    }],
-    "interfaces": [{
-        "name": "tunnel-client",
-        "version": "1.1.0",
-        "protocol": "http",         //服务对外接口协议
-        "port": 8080              //服务端口
+        "installed": true,      //是否已经安装到本地
+        "startup": "always",    //启动方式
+        "protocol": "http",     //服务对外接口协议
+        "port": 8080,           //服务端口
+        "status": "norun"       //norun(未运行) -> running(运行中) -> stop(停止中) -> norun(未运行)
     }, {
         "name": "costrict-keeper",
         "version": "1.0.0",
+        "installed": true,
+        "startup": "always",
         "protocol": "http",
-        "port": 8081
+        "port": 8081,
+        "status": "running"
     }]
 }
 ```
@@ -265,6 +278,12 @@ costrict server --listen 8080 --config appdata/costrict.json
 costrict upgrade codebase-syncer --version 1.2.1
 ```
 
+#### 5.2.3. 查看组件详情
+
+```sh
+costrict list codebase-syncer
+```
+
 #### 5.2.3. 启动服务
 
 ```sh
@@ -286,13 +305,13 @@ costrict service restart codebase-syncer
 #### 5.2.6. 查看服务和组件的信息
 
 ```sh
-costrict list codebase-syncer
+costrict service status
 ```
 
 #### 5.2.7. 生成服务.well-known.json文件
 
 ```sh
-costrict service status --output ./service-statuses.json
+costrict service known --output ./service-statuses.json
 ```
 
 output未指定，则默认保存到`%APPDATA%/.costrict/share/.well-known.json`

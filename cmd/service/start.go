@@ -34,7 +34,7 @@ var startCmd = &cobra.Command{
  * @example
  * err := startService(context.Background(), "codebase-syncer")
  * if err != nil {
- *     log.Fatal(err)
+ *     logger.Fatal(err)
  * }
  */
 func startService(ctx context.Context, serviceName string) error {

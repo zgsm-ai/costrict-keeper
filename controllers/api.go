@@ -56,9 +56,6 @@ func (a *APIController) RegisterRoutes(r *gin.Engine) {
 		api.GET("/components", a.ListComponents)
 		api.POST("/components/:name/upgrade", a.UpgradeComponent)
 		api.DELETE("/components/:name", a.DeleteComponent)
-
-		// 服务地址管理接口
-		api.GET("/endpoints", a.ListEndpoints)
 	}
 }
 
@@ -66,7 +63,7 @@ func (a *APIController) RegisterRoutes(r *gin.Engine) {
 // @Description 获取当前管理的所有服务信息
 // @Tags Services
 // @Produce json
-// @Success 200 {array} config.ServiceConfig
+// @Success 200 {array} config.ServiceSpecification
 // @Router /api/services [get]
 func (a *APIController) ListServices(c *gin.Context) {
 	c.JSON(200, a.svc.GetServices())
@@ -171,7 +168,7 @@ func (a *APIController) StopService(c *gin.Context) {
 // @Description 根据服务名获取指定服务的详细信息
 // @Tags Services
 // @Param name path string true "服务名称"
-// @Success 200 {object} config.ServiceConfig
+// @Success 200 {object} config.ServiceSpecification
 // @Failure 404 {object} map[string]interface{}
 // @Router /costrict/api/v1/services/{name} [get]
 func (a *APIController) GetService(c *gin.Context) {
@@ -200,14 +197,4 @@ func (a *APIController) DeleteComponent(c *gin.Context) {
 	// 注意：这里需要实现删除组件的逻辑
 	// 目前先返回成功状态，实际项目中需要实现具体的删除逻辑
 	c.JSON(200, gin.H{"status": "success", "message": "component deletion not implemented yet"})
-}
-
-// @Summary 获取服务地址
-// @Description 获取所有服务的访问地址
-// @Tags Endpoints
-// @Produce json
-// @Success 200 {array} config.ServiceEndpoint
-// @Router /costrict/api/v1/endpoints [get]
-func (a *APIController) ListEndpoints(c *gin.Context) {
-	c.JSON(200, a.svc.GetEndpoints())
 }

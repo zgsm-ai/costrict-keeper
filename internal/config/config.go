@@ -2,6 +2,9 @@ package config
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/viper"
 )
@@ -39,13 +42,32 @@ type UpgradeConfig struct {
 	PublicKey string `mapstructure:"public_key"`
 }
 
+/**
+ * Directory configuration
+ * @property {string} base - Base path (default: %APPDATA%/.costrict on Windows, /usr/local/.costrict on Linux)
+ * @property {string} bin - Application installation path
+ * @property {string} package - Package information file path
+ * @property {string} share - Shared path
+ * @property {string} cache - Cache path
+ * @property {string} logs - Log path
+ */
+type DirectoryConfig struct {
+	Base    string `mapstructure:"base"`
+	Bin     string `mapstructure:"bin"`
+	Package string `mapstructure:"package"`
+	Share   string `mapstructure:"share"`
+	Cache   string `mapstructure:"cache"`
+	Logs    string `mapstructure:"logs"`
+}
+
 var ErrComponentNotFound = errors.New("component not found")
 
 type AppConfig struct {
-	Server  ServerConfig  `mapstructure:"server"`
-	Log     LogConfig     `mapstructure:"log"`
-	Metrics MetricsConfig `mapstructure:"metrics"`
-	Upgrade UpgradeConfig `mapstructure:"upgrade"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Log       LogConfig       `mapstructure:"log"`
+	Metrics   MetricsConfig   `mapstructure:"metrics"`
+	Upgrade   UpgradeConfig   `mapstructure:"upgrade"`
+	Directory DirectoryConfig `mapstructure:"directory"`
 }
 
 /**
@@ -77,6 +99,46 @@ func collectConfig(cfg *AppConfig) *AppConfig {
 	if cfg.Upgrade.BaseUrl == "" {
 		cfg.Upgrade.BaseUrl = "https://zgsm.sangfor.com/shenma"
 	}
+
+	// 设置默认日志配置
+	if cfg.Log.Level == "" {
+		cfg.Log.Level = "warn"
+	}
+	if cfg.Log.Path == "" {
+		cfg.Log.Path = "console" // 默认输出到控制台
+	}
+
+	// Set default directory paths
+	if cfg.Directory.Base == "" {
+		if runtime.GOOS == "windows" {
+			appData := os.Getenv("APPDATA")
+			if appData == "" {
+				appData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Roaming")
+			}
+			cfg.Directory.Base = filepath.Join(appData, ".costrict")
+		} else {
+			cfg.Directory.Base = "/usr/local/.costrict"
+		}
+	}
+
+	// Set default values for other directories based on base path
+	basePath := cfg.Directory.Base
+	if cfg.Directory.Bin == "" {
+		cfg.Directory.Bin = filepath.Join(basePath, "bin")
+	}
+	if cfg.Directory.Package == "" {
+		cfg.Directory.Package = filepath.Join(basePath, "package")
+	}
+	if cfg.Directory.Share == "" {
+		cfg.Directory.Share = filepath.Join(basePath, "share")
+	}
+	if cfg.Directory.Cache == "" {
+		cfg.Directory.Cache = filepath.Join(basePath, "cache")
+	}
+	if cfg.Directory.Logs == "" {
+		cfg.Directory.Logs = filepath.Join(basePath, "logs")
+	}
+
 	return cfg
 }
 

@@ -32,7 +32,7 @@ var stopCmd = &cobra.Command{
  * @example
  * err := stopService("codebase-syncer")
  * if err != nil {
- *     log.Fatal(err)
+ *     logger.Fatal(err)
  * }
  */
 func stopService(serviceName string) error {
