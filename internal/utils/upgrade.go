@@ -66,7 +66,7 @@ type VersionAddr struct {
 }
 
 /**
- *	版本列表，描述一个硬件平台/操作系统对应的包列表
+ *	指定平台的关键信息，比如，最新版本，版本列表（描述一个硬件平台/操作系统对应的包列表）
  */
 type PlatformInfo struct {
 	PackageName string        `json:"packageName"`
@@ -76,9 +76,33 @@ type PlatformInfo struct {
 	Versions    []VersionAddr `json:"versions"`
 }
 
+/**
+ *	平台标识
+ */
+type PlatformId struct {
+	Os   string `json:"os"`
+	Arch string `json:"arch"`
+}
+
+/**
+ *	平台列表（指定包支持的平台列表）
+ */
+type PlatformList struct {
+	PackageName string       `json:"packageName"`
+	Platforms   []PlatformId `json:"platforms"`
+}
+
+/**
+ *	云端可供下载的包列表
+ */
+type PackageList struct {
+	Packages []string `json:"packages"`
+}
+
 type UpgradeConfig struct {
 	PublicKey   string //用来验证包签名的公钥
 	BaseUrl     string //保存安装包的服务器的基地址
+	BaseDir     string //costrict数据所在的基路径
 	InstallDir  string //软件包的安装路径
 	PackageDir  string //保存下载软件包的包描述文件
 	PackageName string //包名称
@@ -100,30 +124,26 @@ vwIDAQAB
 const SHENMA_BASE_URL = "https://zgsm.sangfor.com/shenma/api/v1"
 
 func (cfg *UpgradeConfig) Correct() {
-	if cfg.PackageName == "" {
-		panic("UpgradeConfig.PackageName is emptied")
-	}
 	if cfg.Arch == "" {
 		cfg.Arch = runtime.GOARCH
 	}
 	if cfg.Os == "" {
 		cfg.Os = runtime.GOOS
 	}
+	homeDir := "/root"
 	if runtime.GOOS == "windows" {
-		appData := os.Getenv("APPDATA")
-		if cfg.InstallDir == "" {
-			cfg.InstallDir = filepath.Join(appData, ".costrict\\bin")
-		}
-		if cfg.PackageDir == "" {
-			cfg.PackageDir = filepath.Join(appData, ".costrict\\package")
-		}
+		homeDir = os.Getenv("USERPROFILE")
 	} else if runtime.GOOS == "linux" {
-		if cfg.InstallDir == "" {
-			cfg.InstallDir = "/usr/local/.costrict/bin"
-		}
-		if cfg.PackageDir == "" {
-			cfg.PackageDir = "/usr/local/.costrict/package"
-		}
+		homeDir = os.Getenv("HOME")
+	}
+	if cfg.BaseDir == "" {
+		cfg.BaseDir = filepath.Join(homeDir, ".costrict")
+	}
+	if cfg.InstallDir == "" {
+		cfg.InstallDir = filepath.Join(cfg.BaseDir, "bin")
+	}
+	if cfg.PackageDir == "" {
+		cfg.PackageDir = filepath.Join(cfg.BaseDir, "package")
 	}
 	if cfg.BaseUrl == "" {
 		cfg.BaseUrl = SHENMA_BASE_URL
@@ -271,7 +291,8 @@ func GetLocalVersion(cfg UpgradeConfig) (VersionNumber, error) {
  *	从远程库获取包版本
  */
 func GetRemoteVersions(cfg UpgradeConfig) (PlatformInfo, error) {
-	urlStr := fmt.Sprintf("%s/%s/%s/%s/packages.json",
+	//	<base-url>/<package>/<os>/<arch>/platform.json
+	urlStr := fmt.Sprintf("%s/%s/%s/%s/platform.json",
 		cfg.BaseUrl, cfg.PackageName, cfg.Os, cfg.Arch)
 
 	bytes, err := GetBytes(urlStr, nil)
@@ -283,6 +304,37 @@ func GetRemoteVersions(cfg UpgradeConfig) (PlatformInfo, error) {
 		return *vers, fmt.Errorf("GetRemoteVersion('%s') unmarshal error: %v", urlStr, err)
 	}
 	return *vers, nil
+}
+
+func GetRemotePlatforms(cfg UpgradeConfig) (PlatformList, error) {
+	//	<base-url>/<package>/platforms.json
+	urlStr := fmt.Sprintf("%s/%s/platforms.json",
+		cfg.BaseUrl, cfg.PackageName)
+
+	bytes, err := GetBytes(urlStr, nil)
+	if err != nil {
+		return PlatformList{}, err
+	}
+	plats := &PlatformList{}
+	if err = json.Unmarshal(bytes, plats); err != nil {
+		return *plats, fmt.Errorf("GetRemoteVersion('%s') unmarshal error: %v", urlStr, err)
+	}
+	return *plats, nil
+}
+
+func GetRemotePackages(cfg UpgradeConfig) (PackageList, error) {
+	//	<base-url>/packages.json
+	urlStr := fmt.Sprintf("%s/packages.json", cfg.BaseUrl)
+
+	bytes, err := GetBytes(urlStr, nil)
+	if err != nil {
+		return PackageList{}, err
+	}
+	pkgs := &PackageList{}
+	if err = json.Unmarshal(bytes, pkgs); err != nil {
+		return *pkgs, fmt.Errorf("GetRemoteVersion('%s') unmarshal error: %v", urlStr, err)
+	}
+	return *pkgs, nil
 }
 
 /**
@@ -302,13 +354,13 @@ func CompareVersion(local, remote VersionNumber) int {
  *	获取costrict目录结构设定
  */
 func GetCostrictDir() (baseDir, installDir, packageDir string) {
-	baseDir = "/usr/local/.costrict"
+	homeDir := "/root"
 	if runtime.GOOS == "windows" {
-		appData := os.Getenv("APPDATA")
-		baseDir = filepath.Join(appData, ".costrict")
+		homeDir = os.Getenv("USERPROFILE")
 	} else if runtime.GOOS == "linux" {
-		baseDir = "/usr/local/.costrict"
+		homeDir = os.Getenv("HOME")
 	}
+	baseDir = filepath.Join(homeDir, ".costrict")
 	installDir = filepath.Join(baseDir, "bin")
 	packageDir = filepath.Join(baseDir, "package")
 	return baseDir, installDir, packageDir
@@ -423,6 +475,9 @@ func savePackageData(cfg UpgradeConfig, pkg PackageInfo, tmpFname string) error 
 		targetFileName = cfg.TargetPath
 	} else {
 		targetFileName = filepath.Join(cfg.InstallDir, pkg.FileName)
+	}
+	if err := mkParentDir(targetFileName); err != nil {
+		return err
 	}
 	os.Remove(targetFileName)
 	if err := os.Rename(tmpFname, targetFileName); err != nil {

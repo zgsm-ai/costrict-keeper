@@ -163,14 +163,14 @@ type ServiceInstance struct {
  * - Response body reading errors
  * - JSON unmarshaling errors
  * @example
- * config, err := FetchRemoteSubsystemConfig()
+ * config, err := FetchRemoteSystemSpecification()
  * if err != nil {
  *     logger.Fatal(err)
  * }
  */
-func FetchRemoteSubsystemConfig() error {
+func FetchRemoteSystemSpecification() error {
 	cfg := utils.UpgradeConfig{}
-	cfg.PackageName = "subsystem"
+	cfg.PackageName = "system"
 	cfg.TargetPath = filepath.Join(config.Config.Directory.Share, "system-spec.json")
 	cfg.Correct()
 
@@ -190,7 +190,7 @@ func FetchRemoteSubsystemConfig() error {
 }
 
 func (sm *ServiceManager) LoadConfig() error {
-	FetchRemoteSubsystemConfig()
+	FetchRemoteSystemSpecification()
 
 	fname := filepath.Join(config.Config.Directory.Share, "system-spec.json")
 

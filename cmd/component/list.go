@@ -6,6 +6,7 @@ import (
 	"costrict-keeper/internal/config"
 	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/utils"
+	"costrict-keeper/services"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -69,6 +70,7 @@ func listInfo(ctx context.Context, args []string) error {
  * - JSON unmarshaling errors
  */
 func loadSystemSpec() (*models.SystemSpecification, error) {
+	services.FetchRemoteSystemSpecification()
 	specPath := filepath.Join(config.Config.Directory.Share, "system-spec.json")
 
 	bytes, err := os.ReadFile(specPath)

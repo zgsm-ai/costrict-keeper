@@ -110,15 +110,13 @@ func collectConfig(cfg *AppConfig) *AppConfig {
 
 	// Set default directory paths
 	if cfg.Directory.Base == "" {
+		homeDir := "/root"
 		if runtime.GOOS == "windows" {
-			appData := os.Getenv("APPDATA")
-			if appData == "" {
-				appData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Roaming")
-			}
-			cfg.Directory.Base = filepath.Join(appData, ".costrict")
+			homeDir = os.Getenv("USERPROFILE")
 		} else {
-			cfg.Directory.Base = "/usr/local/.costrict"
+			homeDir = os.Getenv("HOME")
 		}
+		cfg.Directory.Base = filepath.Join(homeDir, ".costrict")
 	}
 
 	// Set default values for other directories based on base path
