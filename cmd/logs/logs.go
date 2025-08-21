@@ -13,32 +13,44 @@ import (
 var (
 	logFile     string
 	serviceName string
+	directory   string
 	logService  *services.LogService
 )
 
 func init() {
 	root.RootCmd.AddCommand(Cmd)
 	Cmd.Flags().SortFlags = false
-	Cmd.Flags().StringVarP(&logFile, "file", "f", "", "日志文件路径")
-	Cmd.Flags().StringVarP(&serviceName, "service", "s", "", "服务名称")
+	Cmd.Flags().StringVarP(&logFile, "file", "f", "", "Log file path")
+	Cmd.Flags().StringVarP(&serviceName, "service", "s", "", "Service name")
+	Cmd.Flags().StringVarP(&directory, "directory", "d", "", "Log directory path")
 }
 
 var Cmd = &cobra.Command{
 	Use:   "logs",
-	Short: "上报日志到云端",
+	Short: "Report logs to the cloud",
 	Run: func(cmd *cobra.Command, args []string) {
-		if logFile == "" {
-			fmt.Println("请使用-f参数指定日志文件")
+		if logFile == "" && directory == "" {
+			fmt.Println("Please use -f parameter to specify log file or use -d parameter to specify log directory")
 			return
 		}
 		logService = services.NewLogService(viper.GetViper())
 
-		dest, err := logService.UploadLog(logFile, serviceName)
-		if err != nil {
-			fmt.Printf("日志上传失败: %v\n", err)
-			return
+		if directory != "" {
+			// Upload all log files in the directory
+			dest, err := logService.UploadLogDirectory(directory, serviceName)
+			if err != nil {
+				fmt.Printf("Failed to upload log directory: %v\n", err)
+				return
+			}
+			fmt.Printf("Upload successful: %s -> %s\n", directory, dest)
+		} else {
+			// Upload single log file
+			dest, err := logService.UploadLog(logFile, serviceName)
+			if err != nil {
+				fmt.Printf("Failed to upload log: %v\n", err)
+				return
+			}
+			fmt.Printf("Upload successful: %s -> %s\n", logFile, dest)
 		}
-
-		fmt.Printf("上传成功: %s -> %s\n", logFile, dest)
 	},
 }

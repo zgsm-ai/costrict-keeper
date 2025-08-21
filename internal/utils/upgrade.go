@@ -2,12 +2,12 @@ package utils
 
 import (
 	"bufio"
-	"costrict-keeper/internal/logger"
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,7 +16,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 /**
@@ -111,17 +110,27 @@ type UpgradeConfig struct {
 	Arch        string //硬件平台名
 }
 
+// const SHENMA_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwClPrRPGCOXcWPFMPIPc
+// Hn5angPRwuIvwSGle/O7VaZfaTuplMVa2wUPzWv1AfmKpENMm0pf0uhnTyfH3gnR
+// C46rNeMmBcLg8Jd7wTWXtik0IN7CREOQ6obIiMY4Sbx25EPHPf8SeqvPpFq8uOEM
+// YqRUQbPaY5+mgkDZMy68hJDUUstapBQovjSlnLXjG2pULWKIJF2g0gGWvS4LGznP
+// Uvrq2U1QVpsja3EtoLq8jF3UcLJWVZt2pMd5H9m3ULBKFzpu7ix+wb3ebRr6JtUI
+// bMzLAZ0BM0wxlpDmp1GYVag+Ll3w2o3LXLEB08soABD0wdD03Sp7flkbebgAxd1b
+// vwIDAQAB
+// -----END PUBLIC KEY-----`
+
 const SHENMA_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwClPrRPGCOXcWPFMPIPc
-Hn5angPRwuIvwSGle/O7VaZfaTuplMVa2wUPzWv1AfmKpENMm0pf0uhnTyfH3gnR
-C46rNeMmBcLg8Jd7wTWXtik0IN7CREOQ6obIiMY4Sbx25EPHPf8SeqvPpFq8uOEM
-YqRUQbPaY5+mgkDZMy68hJDUUstapBQovjSlnLXjG2pULWKIJF2g0gGWvS4LGznP
-Uvrq2U1QVpsja3EtoLq8jF3UcLJWVZt2pMd5H9m3ULBKFzpu7ix+wb3ebRr6JtUI
-bMzLAZ0BM0wxlpDmp1GYVag+Ll3w2o3LXLEB08soABD0wdD03Sp7flkbebgAxd1b
-vwIDAQAB
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAp/yvHEtGy09fNgZO2a/e
+oyjEvBqVEjNf9RRf8r5QLeXI/InJGS323faqrVAtEjbOhq1R0KuAYISyFRzPvJYa
+aBdlaDpXOY0UJxz6C/hLSAl2ohn/SvCycYVucrjnPUAwCqDNaLLjyqyTdsSXNh3d
+QHgyBM16LD8oqFHj+/dxlMNxv+FIcc6WeN9F7BmTmvbHt5jBqBxBhXtlR8lx7F/H
+AIMDOcw+6STgS2RFFnTRrBl8ZgJPBUavczm0TY4a9gUErfTnb8zBHtH6K4OPsvEF
+Nimo+oDprwaVnIIPm1UvZtc/Qe/6OD0emoVovSzRYhbaqVPWgKqPNiitW9JZvuV3
+nwIDAQAB
 -----END PUBLIC KEY-----`
 
-const SHENMA_BASE_URL = "https://zgsm.sangfor.com/shenma/api/v1"
+const SHENMA_BASE_URL = "https://zgsm.sangfor.com/costrict"
 
 func (cfg *UpgradeConfig) Correct() {
 	if cfg.Arch == "" {
@@ -130,14 +139,8 @@ func (cfg *UpgradeConfig) Correct() {
 	if cfg.Os == "" {
 		cfg.Os = runtime.GOOS
 	}
-	homeDir := "/root"
-	if runtime.GOOS == "windows" {
-		homeDir = os.Getenv("USERPROFILE")
-	} else if runtime.GOOS == "linux" {
-		homeDir = os.Getenv("HOME")
-	}
 	if cfg.BaseDir == "" {
-		cfg.BaseDir = filepath.Join(homeDir, ".costrict")
+		cfg.BaseDir = getCostrictDir()
 	}
 	if cfg.InstallDir == "" {
 		cfg.InstallDir = filepath.Join(cfg.BaseDir, "bin")
@@ -301,7 +304,7 @@ func GetRemoteVersions(cfg UpgradeConfig) (PlatformInfo, error) {
 	}
 	vers := &PlatformInfo{}
 	if err = json.Unmarshal(bytes, vers); err != nil {
-		return *vers, fmt.Errorf("GetRemoteVersion('%s') unmarshal error: %v", urlStr, err)
+		return *vers, fmt.Errorf("GetRemoteVersions('%s') unmarshal error: %v", urlStr, err)
 	}
 	return *vers, nil
 }
@@ -317,7 +320,7 @@ func GetRemotePlatforms(cfg UpgradeConfig) (PlatformList, error) {
 	}
 	plats := &PlatformList{}
 	if err = json.Unmarshal(bytes, plats); err != nil {
-		return *plats, fmt.Errorf("GetRemoteVersion('%s') unmarshal error: %v", urlStr, err)
+		return *plats, fmt.Errorf("GetRemotePlatforms('%s') unmarshal error: %v", urlStr, err)
 	}
 	return *plats, nil
 }
@@ -332,7 +335,7 @@ func GetRemotePackages(cfg UpgradeConfig) (PackageList, error) {
 	}
 	pkgs := &PackageList{}
 	if err = json.Unmarshal(bytes, pkgs); err != nil {
-		return *pkgs, fmt.Errorf("GetRemoteVersion('%s') unmarshal error: %v", urlStr, err)
+		return *pkgs, fmt.Errorf("GetRemotePackages('%s') unmarshal error: %v", urlStr, err)
 	}
 	return *pkgs, nil
 }
@@ -353,17 +356,14 @@ func CompareVersion(local, remote VersionNumber) int {
 /**
  *	获取costrict目录结构设定
  */
-func GetCostrictDir() (baseDir, installDir, packageDir string) {
+func getCostrictDir() string {
 	homeDir := "/root"
 	if runtime.GOOS == "windows" {
 		homeDir = os.Getenv("USERPROFILE")
 	} else if runtime.GOOS == "linux" {
 		homeDir = os.Getenv("HOME")
 	}
-	baseDir = filepath.Join(homeDir, ".costrict")
-	installDir = filepath.Join(baseDir, "bin")
-	packageDir = filepath.Join(baseDir, "package")
-	return baseDir, installDir, packageDir
+	return filepath.Join(homeDir, ".costrict")
 }
 
 /**
@@ -455,14 +455,9 @@ func UpgradePackage(cfg UpgradeConfig, curVer VersionNumber, specVer *VersionNum
  *	保存包描述文件
  */
 func savePackageJson(cfg UpgradeConfig, pkg PackageInfo, data []byte) {
-	packageFileName := filepath.Join(cfg.PackageDir,
-		fmt.Sprintf("%s-%s.json", cfg.PackageName, PrintVersion(pkg.VersionId)))
+	packageFileName := filepath.Join(cfg.PackageDir, fmt.Sprintf("%s.json", cfg.PackageName))
 	if err := os.WriteFile(packageFileName, data, 0644); err != nil {
-		logger.Errorf("Write package file(%s) failed: %v", packageFileName, err)
-	}
-	packageFileName = filepath.Join(cfg.PackageDir, fmt.Sprintf("%s.json", cfg.PackageName))
-	if err := os.WriteFile(packageFileName, data, 0644); err != nil {
-		logger.Errorf("Write package file(%s) failed: %v", packageFileName, err)
+		log.Printf("Write package file(%s) failed: %v\n", packageFileName, err)
 	}
 }
 
@@ -497,7 +492,7 @@ func windowsSetPATH(installDir string) error {
 	if !strings.Contains(paths, installDir) {
 		newPath := fmt.Sprintf("%s;%s", paths, installDir)
 		cmd := exec.Command("setx", "PATH", newPath)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // 隐藏命令窗口
+		// cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // 隐藏命令窗口
 		if err := cmd.Run(); err != nil {
 			return err
 		}
@@ -514,20 +509,20 @@ func linuxSetPATH(installDir string) error {
 	// 检查是否已经包含该路径
 	currentPathStr := strings.TrimSpace(currentPath)
 	if strings.Contains(currentPathStr, installDir) {
-		logger.Info("The path is already in PATH.")
+		log.Println("The path is already in PATH.")
 		return nil
 	}
 	// 将新路径添加到 PATH
 	newPathStr := fmt.Sprintf("%s:%s", currentPathStr, installDir)
 	err := os.Setenv("PATH", newPathStr)
 	if err != nil {
-		fmt.Println("Failed to set PATH for current process:", err)
+		log.Printf("Failed to set PATH for current process: %v\n", err)
 		return err
 	}
 	// 获取当前用户的主目录
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		logger.Errorf("Failed to get user home directory: %v", err)
+		log.Printf("Failed to get user home directory: %v\n", err)
 		return err
 	}
 	envLine := fmt.Sprintf("export PATH=$PATH:%s", installDir)
@@ -537,13 +532,13 @@ func linuxSetPATH(installDir string) error {
 	file, err := os.Open(bashrcPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.Errorf("Failed to open ~/.bashrc: %v", err)
+			log.Printf("Failed to open ~/.bashrc: %v\n", err)
 			return err
 		}
 		// 文件不存在，创建一个空文件
 		file, err = os.Create(bashrcPath)
 		if err != nil {
-			logger.Errorf("Failed to create ~/.bashrc: %v", err)
+			log.Printf("Failed to create ~/.bashrc: %v\n", err)
 			return err
 		}
 		file.Close()
@@ -552,31 +547,31 @@ func linuxSetPATH(installDir string) error {
 		for scanner.Scan() {
 			if strings.Contains(scanner.Text(), envLine) {
 				file.Close()
-				logger.Info("Environment variable already exists in ~/.bashrc.")
+				log.Println("Environment variable already exists in ~/.bashrc.")
 				return nil
 			}
 		}
 		file.Close()
 		if err := scanner.Err(); err != nil {
-			logger.Errorf("Failed to read ~/.bashrc: %v", err)
+			log.Printf("Failed to read ~/.bashrc: %v\n", err)
 			return err
 		}
 	}
 	// 将环境变量追加到 ~/.bashrc 文件
 	file, err = os.OpenFile(bashrcPath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		logger.Errorf("Failed to open ~/.bashrc for appending: %v", err)
+		log.Printf("Failed to open ~/.bashrc for appending: %v\n", err)
 		return err
 	}
 	defer file.Close()
 
 	_, err = file.WriteString(envLine + "\n")
 	if err != nil {
-		logger.Errorf("Failed to write environment variable to ~/.bashrc: %v", err)
+		log.Printf("Failed to write environment variable to ~/.bashrc: %v\n", err)
 		return err
 	}
 
-	logger.Info("Environment variable added to ~/.bashrc successfully.")
+	log.Println("Environment variable added to ~/.bashrc successfully.")
 	return nil
 }
 
@@ -595,4 +590,74 @@ func installPackage(cfg UpgradeConfig, pkg PackageInfo, tmpFname string) error {
 	} else {
 		return linuxSetPATH(cfg.InstallDir)
 	}
+}
+
+/**
+ *	移除指定名字的包
+ *	@param {string} packageName - 要移除的包名称
+ *	@param {string} baseDir - costrict数据所在的基路径，如果为空则使用默认路径
+ *	@returns {error} 返回错误对象，成功时返回nil
+ *	@description
+ *	- 移除指定包的所有相关文件，包括包描述文件和安装的包文件
+ *	- 首先读取包描述信息以确定需要删除的文件位置
+ *	- 支持自定义baseDir，如果为空则使用默认的.costrict目录
+ *	- 如果包不存在或已删除，不会报错
+ *	@throws
+ *	- 读取包描述文件失败
+ *	- 删除包文件失败
+ *	- 删除包描述文件失败
+ *	@example
+ *	err := RemovePackage("/home/xxx/.costrict", "my-package")
+ *	if err != nil {
+ *		log.Fatal(err)
+ *	}
+ */
+func RemovePackage(baseDir string, packageName string) error {
+	// 如果baseDir为空，使用默认路径
+	if baseDir == "" {
+		baseDir = getCostrictDir()
+	}
+	packageDir := filepath.Join(baseDir, "package")
+	installDir := filepath.Join(baseDir, "bin")
+
+	// 读取包描述文件
+	packageFileName := filepath.Join(packageDir, fmt.Sprintf("%s.json", packageName))
+	var pkg PackageInfo
+	bytes, err := os.ReadFile(packageFileName)
+	if err != nil {
+		// 如果包描述文件不存在，认为包已移除，不报错
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("RemovePackage: read package file failed: %v", err)
+	}
+
+	// 解析包描述信息
+	if err := json.Unmarshal(bytes, &pkg); err != nil {
+		return fmt.Errorf("RemovePackage: unmarshal package info failed: %v", err)
+	}
+
+	// 删除包文件
+	var targetFileName string
+	if pkg.FileName == "" {
+		targetFileName = filepath.Join(installDir, pkg.PackageName)
+	} else {
+		targetFileName = filepath.Join(installDir, pkg.FileName)
+	}
+
+	// 检查文件是否存在，如果存在则删除
+	if _, err := os.Stat(targetFileName); err == nil {
+		if err := os.Remove(targetFileName); err != nil {
+			return fmt.Errorf("RemovePackage: remove package file '%s' failed: %v", targetFileName, err)
+		}
+		log.Printf("Package file '%s' removed successfully\n", targetFileName)
+	}
+
+	// 删除包描述文件
+	if err := os.Remove(packageFileName); err != nil {
+		return fmt.Errorf("RemovePackage: remove package description file '%s' failed: %v", packageFileName, err)
+	}
+
+	log.Printf("Package '%s' removed successfully\n", packageName)
+	return nil
 }

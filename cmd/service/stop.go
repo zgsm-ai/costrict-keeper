@@ -1,16 +1,17 @@
 package service
 
 import (
-	"costrict-keeper/cmd/root"
+	"costrict-keeper/internal/rpc"
 	"costrict-keeper/services"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
 var stopCmd = &cobra.Command{
-	Use:   "stop [服务名称]",
-	Short: "停止服务",
+	Use:   "stop [service name]",
+	Short: "Stop service",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := stopService(args[0]); err != nil {
@@ -36,14 +37,30 @@ var stopCmd = &cobra.Command{
  * }
  */
 func stopService(serviceName string) error {
-	manager := services.NewServiceManager()
-	if err := manager.StopService(serviceName); err != nil {
-		return fmt.Errorf("停止服务失败: %v", err)
+	// 首先尝试通过 RPC 连接 costrict 服务器
+	config := rpc.DefaultHTTPConfig()
+	config.Timeout = 5 * time.Second
+	rpcClient := rpc.NewHTTPClient(config)
+	// 尝试连接服务器并调用 API
+	apiPath := fmt.Sprintf("/costrict/api/v1/services/%s/stop", serviceName)
+	_, err := rpcClient.Post(apiPath, nil)
+	if err == nil {
+		fmt.Printf("Service %s has been stopped via costrict server\n", serviceName)
+		rpcClient.Close()
+		return nil
 	}
-	fmt.Printf("服务 %s 已停止\n", serviceName)
+	// 如果 API 调用失败，关闭连接并继续原有逻辑
+	rpcClient.Close()
+
+	// 如果无法连接到 costrict 服务器或 API 调用失败，走原有逻辑
+	manager := services.GetServiceManager()
+	if err := manager.StopService(serviceName); err != nil {
+		return fmt.Errorf("Failed to stop service: %v", err)
+	}
+	fmt.Printf("Service %s has been stopped locally\n", serviceName)
 	return nil
 }
 
 func init() {
-	root.RootCmd.AddCommand(stopCmd)
+	serviceCmd.AddCommand(stopCmd)
 }

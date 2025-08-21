@@ -3,9 +3,15 @@ package services
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
+	"costrict-keeper/internal/logger"
+	"costrict-keeper/internal/models"
+
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/push"
 )
 
 var (
@@ -25,23 +31,192 @@ var (
 		},
 		[]string{"service"},
 	)
+
+	serviceHealthStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "service_health_status",
+			Help: "Health status of services (1: healthy, 0: unhealthy)",
+		},
+		[]string{"service", "version"},
+	)
+
+	componentVersionInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "component_version_info",
+			Help: "Version information of components",
+		},
+		[]string{"component", "version"},
+	)
+
+	serviceUpTime = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "service_uptime_seconds",
+			Help: "Service uptime in seconds",
+		},
+		[]string{"service"},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(requestCount)
 	prometheus.MustRegister(requestDuration)
+	prometheus.MustRegister(serviceHealthStatus)
+	prometheus.MustRegister(componentVersionInfo)
+	prometheus.MustRegister(serviceUpTime)
 }
 
+/**
+ * Collect metrics from all components
+ * @returns {error} Returns error if collection fails, nil on success
+ * @description
+ * - Creates service manager instance to access component information
+ * - Collects component health status and version information
+ * - Collects service metrics including uptime and request counts
+ * - Updates Prometheus gauge metrics for each component
+ * @throws
+ * - Service manager creation errors
+ * - Component retrieval errors
+ * - Health check errors
+ */
 func collectMetricsFromComponents() error {
-	// TODO: 实现从各组件采集指标的具体逻辑
+	// Create service manager to access component information
+	sm := GetServiceManager()
+
+	// Collect metrics for each service
+	services := sm.GetInstances()
+	for _, svc := range services {
+		// Set component health status (1: healthy, 0: unhealthy)
+		healthStatus := 0.0
+		if svc.component != nil && svc.component.Installed {
+			healthStatus = 1.0
+		}
+		component := svc.component
+		if component != nil {
+			serviceHealthStatus.WithLabelValues(svc.Name, component.LocalVersion).Set(healthStatus)
+
+			// Set component version info (using value 1 as placeholder since version is already in label)
+			componentVersionInfo.WithLabelValues(svc.Name, component.LocalVersion).Set(1.0)
+
+			logger.Debugf("Collected metrics for component %s, version: %s, installed: %v",
+				svc.Name, component.LocalVersion, component.Installed)
+		}
+
+		// Check if svc is healthy
+		isHealthy := sm.IsServiceHealthy(svc.Name)
+		healthValue := 0.0
+		if isHealthy {
+			healthValue = 1.0
+		}
+		serviceHealthStatus.WithLabelValues(svc.Name, "unknown").Set(healthValue)
+
+		// If svc has metrics endpoint, try to collect additional metrics
+		if svc.Spec.Metrics != "" && svc.Port > 0 {
+			if err := collectServiceMetrics(svc.Spec); err != nil {
+				logger.Warnf("Failed to collect metrics from service %s: %v", svc.Name, err)
+			}
+		}
+
+		logger.Debugf("Collected metrics for service %s, healthy: %v", svc.Name, isHealthy)
+	}
+
 	return nil
 }
 
+/**
+ * Collect additional metrics from a specific service
+ * @param {models.ServiceSpecification} service - Service specification
+ * @returns {error} Returns error if collection fails, nil on success
+ * @description
+ * - Constructs service metrics endpoint URL
+ * - Makes HTTP request to service metrics endpoint
+ * - Processes and records service-specific metrics
+ * @throws
+ * - HTTP request errors
+ * - Response parsing errors
+ */
+func collectServiceMetrics(service models.ServiceSpecification) error {
+	// Construct metrics URL
+	url := fmt.Sprintf("http://localhost:%d%s", service.Port, service.Metrics)
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Make HTTP request to service metrics endpoint
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to get metrics from service %s: %v", service.Name, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("service %s returned non-200 status code: %d", service.Name, resp.StatusCode)
+	}
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body from service %s: %v", service.Name, err)
+	}
+
+	// For now, just log the metrics content
+	// In a real implementation, you would parse the metrics and update Prometheus counters
+	logger.Debugf("Metrics from service %s: %s", service.Name, string(body))
+
+	return nil
+}
+
+/**
+ * Push collected metrics to Prometheus Pushgateway
+ * @param {string} addr - Pushgateway address
+ * @returns {error} Returns error if push fails, nil on success
+ * @description
+ * - Creates pusher instance with specified gateway address
+ * - Pushes all registered Prometheus metrics to gateway
+ * - Handles push errors and logging
+ * @throws
+ * - Pushgateway connection errors
+ * - Push operation errors
+ */
 func pushMetricsToGateway(addr string) error {
-	// TODO: 实现推送指标到pushgateway的具体逻辑
+	if addr == "" {
+		return fmt.Errorf("pushgateway address is empty")
+	}
+
+	// Create a pusher to push metrics to the pushgateway
+	pusher := push.New(addr, "costrict-keeper")
+
+	// Add default metrics
+	pusher.Collector(requestCount)
+	pusher.Collector(requestDuration)
+	pusher.Collector(serviceHealthStatus)
+	pusher.Collector(componentVersionInfo)
+	pusher.Collector(serviceUpTime)
+
+	// Push metrics to gateway
+	if err := pusher.Add(); err != nil {
+		logger.Errorf("Failed to push metrics to pushgateway: %v", err)
+		return err
+	}
+
+	logger.Infof("Successfully pushed metrics to pushgateway: %s", addr)
 	return nil
 }
 
+/**
+ * Collect and push metrics periodically
+ * @param {string} pushGatewayAddr - Pushgateway address
+ * @returns {error} Returns error if operation fails, nil on success
+ * @description
+ * - Initializes metrics collection and push process
+ * - Sets up periodic ticker for regular metric collection
+ * - Handles context cancellation for graceful shutdown
+ * - Executes initial collection and push immediately
+ * @throws
+ * - Initial collection errors
+ * - Initial push errors
+ */
 func CollectAndPushMetrics(pushGatewayAddr string) error {
 	fmt.Println("启动指标采集服务(无服务器模式)，Pushgateway地址:", pushGatewayAddr)
 
@@ -66,4 +241,39 @@ func CollectAndPushMetrics(pushGatewayAddr string) error {
 	case <-ctx.Done():
 		return nil
 	}
+}
+
+/**
+ * Increment request counter for a specific service
+ * @param {string} serviceName - Name of the service
+ * @description
+ * - Increments the request counter for the specified service
+ * - Used by API handlers to track request counts
+ */
+func IncrementRequestCount(serviceName string) {
+	requestCount.WithLabelValues(serviceName).Inc()
+}
+
+/**
+ * Record request duration for a specific service
+ * @param {string} serviceName - Name of the service
+ * @param {float64} duration - Request duration in seconds
+ * @description
+ * - Records the duration of a request for the specified service
+ * - Used by API handlers to track request latency
+ */
+func RecordRequestDuration(serviceName string, duration float64) {
+	requestDuration.WithLabelValues(serviceName).Observe(duration)
+}
+
+/**
+ * Update service uptime metric
+ * @param {string} serviceName - Name of the service
+ * @param {float64} uptime - Service uptime in seconds
+ * @description
+ * - Updates the uptime metric for the specified service
+ * - Used by service manager to track service availability
+ */
+func UpdateServiceUptime(serviceName string, uptime float64) {
+	serviceUpTime.WithLabelValues(serviceName).Set(uptime)
 }

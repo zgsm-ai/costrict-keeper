@@ -7,4 +7,5 @@ import (
 	_ "costrict-keeper/cmd/root"
 	_ "costrict-keeper/cmd/server"
 	_ "costrict-keeper/cmd/service"
+	_ "costrict-keeper/cmd/tunnel"
 )

@@ -1,7 +1,7 @@
 package component
 
 import (
-	"costrict-keeper/cmd/root"
+	"costrict-keeper/internal/config"
 	"costrict-keeper/internal/utils"
 	"fmt"
 
@@ -12,18 +12,18 @@ var optComponent string
 var optVersion string
 
 var upgradeCmd = &cobra.Command{
-	Use:   "upgrade [component]",
-	Short: "升级指定组件",
+	Use:   "upgrade {component | -n component}",
+	Short: "Upgrade specified component",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// 确定组件名称：优先使用位置参数，其次使用命令行参数
+		// Determine component name: prioritize positional arguments, then use command line arguments
 		component := optComponent
 		if len(args) > 0 && args[0] != "" {
 			component = args[0]
 		}
 
 		if component == "" {
-			fmt.Println("错误：必须指定组件名称")
+			fmt.Println("Error: Component name must be specified")
 			return
 		}
 
@@ -36,6 +36,7 @@ var upgradeCmd = &cobra.Command{
 func upgradeComponent(component string, version string) error {
 	cfg := utils.UpgradeConfig{
 		PackageName: component,
+		BaseUrl:     config.Get().Cloud.UpgradeUrl,
 	}
 	cfg.Correct()
 	curVer, _ := utils.GetLocalVersion(cfg)
@@ -44,7 +45,7 @@ func upgradeComponent(component string, version string) error {
 	if version != "" {
 		v, err := utils.ParseVersion(version)
 		if err != nil {
-			return fmt.Errorf("无效的版本号: %s", version)
+			return fmt.Errorf("Invalid version number: %s", version)
 		}
 		specVer = &v
 	}
@@ -64,7 +65,7 @@ func upgradeComponent(component string, version string) error {
 
 func init() {
 	upgradeCmd.Flags().SortFlags = false
-	upgradeCmd.Flags().StringVarP(&optVersion, "version", "v", "", "指定要升级的目标版本")
-	upgradeCmd.Flags().StringVarP(&optComponent, "component", "c", "", "指定要升级的组件名称")
-	root.RootCmd.AddCommand(upgradeCmd)
+	upgradeCmd.Flags().StringVarP(&optVersion, "version", "v", "", "Specify the target version to upgrade")
+	upgradeCmd.Flags().StringVarP(&optComponent, "component", "n", "", "Specify the component name to upgrade")
+	componentCmd.AddCommand(upgradeCmd)
 }

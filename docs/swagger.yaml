@@ -1,0 +1,421 @@
+basePath: /
+definitions:
+  models.ComponentInfo:
+    properties:
+      installed:
+        type: boolean
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  models.CreateTunnelRequest:
+    properties:
+      app:
+        description: application name(path parameter)
+        type: string
+      port:
+        description: port number(query parameter)
+        type: integer
+    type: object
+  models.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  models.ServiceSpecification:
+    properties:
+      accessible:
+        type: string
+      args:
+        items:
+          type: string
+        type: array
+      command:
+        type: string
+      healthy:
+        type: string
+      metrics:
+        type: string
+      name:
+        type: string
+      port:
+        type: integer
+      protocol:
+        type: string
+      startup:
+        type: string
+    type: object
+  models.Tunnel:
+    properties:
+      createdTime:
+        description: creation time
+        type: string
+      localPort:
+        description: local port
+        type: integer
+      mappingPort:
+        description: mapping port to cloud
+        type: integer
+      name:
+        description: service name
+        type: string
+      pid:
+        description: process ID of the tunnel
+        type: integer
+      protocol:
+        description: protocol type(http/https)
+        type: string
+      status:
+        allOf:
+        - $ref: '#/definitions/models.TunnelStatus'
+        description: tunnel status(running/stopped/error)
+      temporary:
+        description: delete after the tunnel stops
+        type: boolean
+    type: object
+  models.TunnelResponse:
+    properties:
+      appName:
+        description: application name
+        type: string
+      message:
+        description: response message
+        type: string
+      status:
+        description: operation status
+        type: string
+    type: object
+  models.TunnelStatus:
+    enum:
+    - running
+    - stopped
+    - error
+    type: string
+    x-enum-varnames:
+    - StatusRunning
+    - StatusStopped
+    - StatusError
+host: localhost:8999
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: This is the API server for Costrict Keeper
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Costrict Keeper API
+  version: "1.0"
+paths:
+  /costrict/api/v1/components:
+    get:
+      description: 获取所有已安装组件信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.ComponentInfo'
+            type: array
+      summary: 获取组件列表
+      tags:
+      - Components
+  /costrict/api/v1/components/{name}:
+    delete:
+      description: 根据组件名删除指定组件
+      parameters:
+      - description: 组件名称
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 删除组件
+      tags:
+      - Components
+  /costrict/api/v1/components/{name}/upgrade:
+    post:
+      description: 升级指定组件到最新版本
+      parameters:
+      - description: 组件名称
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: '{"code": "component.not_found", "message": "Component not
+            found"}'
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 升级组件
+      tags:
+      - Components
+  /costrict/api/v1/reload:
+    post:
+      description: 重新加载应用配置文件
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 重新加载配置
+      tags:
+      - Config
+  /costrict/api/v1/services:
+    get:
+      description: 获取当前管理的所有服务信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.ServiceSpecification'
+            type: array
+      summary: 获取服务列表
+      tags:
+      - Services
+  /costrict/api/v1/services/{name}:
+    get:
+      description: 根据服务名获取指定服务的详细信息
+      parameters:
+      - description: 服务名称
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ServiceSpecification'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 获取服务信息
+      tags:
+      - Services
+  /costrict/api/v1/services/{name}/restart:
+    post:
+      description: 根据服务名重启指定服务
+      parameters:
+      - description: 服务名称
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 重启服务
+      tags:
+      - Services
+  /costrict/api/v1/services/{name}/start:
+    post:
+      description: 根据服务名启动指定服务
+      parameters:
+      - description: 服务名称
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 启动服务
+      tags:
+      - Services
+  /costrict/api/v1/services/{name}/stop:
+    post:
+      description: 根据服务名停止指定服务
+      parameters:
+      - description: 服务名称
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 停止服务
+      tags:
+      - Services
+  /costrict/api/v1/tunnels:
+    get:
+      consumes:
+      - application/json
+      description: Get list of all active tunnels
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tunnel list response
+          schema:
+            items:
+              $ref: '#/definitions/models.Tunnel'
+            type: array
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List all tunnels
+      tags:
+      - Tunnels
+    post:
+      consumes:
+      - application/json
+      description: Create reverse tunnel for specified application
+      parameters:
+      - description: Create tunnel request parameters
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.CreateTunnelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tunnel  creation
+          schema:
+            $ref: '#/definitions/models.Tunnel'
+        "400":
+          description: Invalid parameter error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Tunnel creation failure error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Create reverse tunnel
+      tags:
+      - Tunnels
+  /costrict/api/v1/tunnels/{app}/{port}:
+    delete:
+      consumes:
+      - application/json
+      description: Close reverse tunnel for specified application
+      parameters:
+      - description: Application name
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: Port number
+        in: path
+        name: port
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tunnel close success response
+          schema:
+            $ref: '#/definitions/models.TunnelResponse'
+        "400":
+          description: Invalid parameter error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Tunnel close failure error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Close reverse tunnel
+      tags:
+      - Tunnels
+    get:
+      consumes:
+      - application/json
+      description: Get details of specified tunnel
+      parameters:
+      - description: Application name
+        in: path
+        name: app
+        required: true
+        type: string
+      - description: Port number
+        in: path
+        name: port
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tunnel details response
+          schema:
+            $ref: '#/definitions/models.Tunnel'
+        "404":
+          description: Tunnel not found error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get tunnel info
+      tags:
+      - Tunnels
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

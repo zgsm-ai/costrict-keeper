@@ -5,98 +5,180 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"syscall"
+	"runtime"
+	"time"
 
 	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/utils"
 )
 
+const (
+	COSTRICT_NAME = "costrict"
+)
+
+/**
+ * Service instance information
+ * @property {int} pid - Process ID
+ * @property {string} status - Service status: running/stopped/error/exited
+ * @property {string} startTime - Service start time in ISO format
+ * @property {models.ServiceSpecification} config - Service configuration
+ */
+type ServiceInstance struct {
+	Name      string `json:"name"`
+	Pid       int    `json:"pid"`
+	Port      int    `json:"port"`
+	Status    string `json:"status"`
+	StartTime string `json:"startTime"`
+
+	Spec      models.ServiceSpecification `json:"-"`
+	component *ComponentInstance
+	proc      *ProcessInstance
+	tun       *TunnelInstance
+}
+
+type ServiceDetail struct {
+	Name      string                      `json:"name"`
+	Pid       int                         `json:"pid"`
+	Port      int                         `json:"port"`
+	Status    string                      `json:"status"`
+	StartTime string                      `json:"startTime"`
+	Spec      models.ServiceSpecification `json:"spec"`
+	Tunnel    TunnelInstance              `json:"tunnel"`
+}
+
+type ServiceArgs struct {
+	LocalPort   int
+	ProcessPath string
+	ProcessName string
+}
+
 type ServiceManager struct {
-	Services    []models.ServiceSpecification
-	runningSvcs map[string]*ServiceInstance
+	cm       *ComponentManager
+	tm       *TunnelManager
+	pm       *ProcessManager
+	self     ServiceInstance
+	services map[string]*ServiceInstance
 }
 
-/**
- * Get all registered services
- * @returns {[]models.ServiceSpecification} Returns slice of service configurations
- * @description
- * - Returns current list of managed services
- * - Includes service names, versions, protocols, ports and startup commands
- */
-func (sm *ServiceManager) GetServices() []models.ServiceSpecification {
-	return sm.Services
-}
+var serviceManager *ServiceManager
 
-/**
- * Get all components derived from services
- * @returns {([]models.ComponentInfo, error)} Returns slice of component information and error if any
- * @description
- * - Converts service configurations to component information
- * - Each service becomes a component with name, version and path
- * - Returns empty slice if no services exist
- * @throws
- * - Component conversion errors
- */
-func (sm *ServiceManager) GetComponents() ([]models.ComponentInfo, error) {
-	// 实现获取组件列表逻辑
-	components := make([]models.ComponentInfo, 0)
-	// 获取服务作为组件信息
-	for _, svc := range sm.Services {
-		components = append(components, models.ComponentInfo{
+func GetServiceManager() *ServiceManager {
+	if serviceManager != nil {
+		return serviceManager
+	}
+	sm := &ServiceManager{
+		services: make(map[string]*ServiceInstance),
+		cm:       GetComponentManager(),
+		tm:       GetTunnelManager(),
+		pm:       GetProcessManager(),
+	}
+	for _, svc := range config.Spec().Services {
+		instance := &ServiceInstance{
 			Name:      svc.Name,
-			Version:   "unknown", // 从服务配置中获取版本信息
-			Installed: true,      // 假设服务已安装
-		})
+			Pid:       0,
+			Status:    "exited",
+			StartTime: time.Now().Format(time.RFC3339),
+			Spec:      svc,
+			component: sm.cm.GetComponent(svc.Name),
+		}
+		sm.services[svc.Name] = instance
 	}
-	return components, nil
+	sm.self.Name = COSTRICT_NAME
+	sm.self.Status = "exited"
+	sm.self.Spec = config.Spec().Manager.Service
+	sm.self.component = sm.cm.GetSelf()
+	for name, svc := range sm.services {
+		sm.loadService(name, svc)
+	}
+	sm.loadService(COSTRICT_NAME, &sm.self)
+	if env.Daemon {
+		sm.self.Pid = os.Getpid()
+		sm.self.Status = "running"
+		sm.self.Port = env.ListenPort
+		sm.self.StartTime = time.Now().Format(time.RFC3339)
+		sm.saveService(&sm.self)
+	}
+	serviceManager = sm
+	return serviceManager
 }
 
-/**
- * Upgrade specified component to latest version
- * @param {string} name - Name of the component to upgrade
- * @returns {error} Returns error if upgrade fails, nil on success
- * @description
- * - Finds service configuration by component name
- * - Parses highest version from service configuration
- * - Executes upgrade function with component configuration
- * @throws
- * - Service not found errors
- * - Version parsing errors
- * - Upgrade execution errors
- */
-func (sm *ServiceManager) UpgradeComponent(name string) error {
-	// 实现组件升级逻辑
-	// 获取组件配置
-	var svc *models.ServiceSpecification
-	for _, s := range sm.Services {
-		if s.Name == name {
-			svc = &s
-			break
-		}
-	}
-	if svc == nil {
-		return fmt.Errorf("service %s not found", name)
+func (sm *ServiceManager) getServiceKnowledge(svc *ServiceInstance) models.ServiceKnowledge {
+	spec := svc.Spec
+
+	installed := false
+	version := "unknown"
+	component := sm.cm.GetComponent(spec.Name)
+	if component != nil {
+		version = component.LocalVersion
+		installed = component.Installed
 	}
 
-	// 解析版本号 - 由于新结构体中没有版本信息，使用默认版本
-	upgradeCfg := utils.UpgradeConfig{PackageName: name}
-	upgradeCfg.Correct()
-	curVer, _ := utils.GetLocalVersion(upgradeCfg)
-	retVer, err := utils.UpgradePackage(upgradeCfg, curVer, nil)
-	if err != nil {
-		logger.Errorf("The '%s' upgrade failed: %v", name, err)
-		return err
+	return models.ServiceKnowledge{
+		Name:       spec.Name,
+		Version:    version,
+		Installed:  installed,
+		Startup:    spec.Startup,
+		Status:     svc.Status,
+		Protocol:   spec.Protocol,
+		Port:       svc.Port,
+		Command:    spec.Command,
+		Metrics:    spec.Metrics,
+		Healthy:    spec.Healthy,
+		Accessible: spec.Accessible,
 	}
-	if utils.CompareVersion(retVer, curVer) == 0 {
-		logger.Infof("The '%s' version is up to date\n", name)
-	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", name, utils.PrintVersion(retVer))
+}
+
+func (sm *ServiceManager) getSelfKnowledge() models.ServiceKnowledge {
+	spec := sm.self.Spec
+	component := sm.cm.GetSelf()
+	return models.ServiceKnowledge{
+		Name:       spec.Name,
+		Version:    component.LocalVersion,
+		Installed:  component.Installed,
+		Startup:    spec.Startup,
+		Status:     sm.self.Status,
+		Protocol:   spec.Protocol,
+		Port:       sm.self.Port,
+		Command:    spec.Command,
+		Metrics:    spec.Metrics,
+		Healthy:    spec.Healthy,
+		Accessible: spec.Accessible,
 	}
-	return err
+}
+
+func (sm *ServiceManager) GetInstances() []*ServiceInstance {
+	var svcs []*ServiceInstance
+	svcs = append(svcs, &sm.self)
+	for _, svc := range sm.services {
+		svcs = append(svcs, svc)
+	}
+	return svcs
+}
+
+func (sm *ServiceManager) GetInstance(name string) *ServiceInstance {
+	if name == COSTRICT_NAME {
+		return &sm.self
+	}
+	if svc, exist := sm.services[name]; exist {
+		return svc
+	}
+	return nil
+}
+
+func (sm *ServiceManager) GetServiceDetail(svc *ServiceInstance) ServiceDetail {
+	return ServiceDetail{
+		Name:      svc.Name,
+		Pid:       svc.Pid,
+		Port:      svc.Port,
+		Status:    svc.Status,
+		StartTime: svc.StartTime,
+		Spec:      svc.Spec,
+		Tunnel:    *svc.tun,
+	}
 }
 
 /**
@@ -110,225 +192,354 @@ func (sm *ServiceManager) UpgradeComponent(name string) error {
  * - Returns false if service is not found or unhealthy
  */
 func (sm *ServiceManager) IsServiceHealthy(name string) bool {
-	// 实现服务健康检查
-	// 检查服务进程状态
-	if instance, ok := sm.runningSvcs[name]; ok {
-		// 检查进程是否正在运行
-		if instance.Command.Process != nil {
-			// 检查进程是否存在且未退出
-			process, err := os.FindProcess(instance.PID)
-			if err != nil {
-				return false
-			}
-
-			// 发送信号0来检查进程是否存在（不会实际发送信号）
-			if err := process.Signal(syscall.Signal(0)); err != nil {
-				// 进程可能已经退出
-				return false
-			}
-
-			// 检查服务端口是否可访问
-			for _, svc := range sm.Services {
-				if svc.Name == name {
-					// 如果端口不可用（已被占用），说明服务正在监听
-					if svc.Port > 0 {
-						return !utils.CheckPortAvailable(svc.Port)
-					}
-					return false
-				}
-			}
-		}
+	svc, ok := sm.services[name]
+	if !ok {
+		return false
 	}
-	return false
-}
-
-type ServiceInstance struct {
-	PID     int
-	Command *exec.Cmd
-	Status  string
+	if svc.Status != "running" {
+		return false
+	}
+	// 如果端口不可用（已被占用），说明服务正在监听
+	if svc.Port > 0 {
+		return utils.CheckPortConnectable(svc.Port)
+	}
+	return true
 }
 
 /**
- * Load remote services configuration from URL
- * @param {string} url - URL of the remote configuration file
- * @returns {(*RemoteServicesConfig, error)} Returns configuration struct and error if any
+ * Save service information to cache file
+ * @param {string} serviceName - Name of the service
+ * @param {ServiceInstance} svc - Service instance information
+ * @returns {error} Returns error if save fails, nil on success
  * @description
- * - Makes HTTP GET request to specified URL
- * - Validates HTTP response status code
- * - Reads response body and parses JSON
- * - Returns unmarshaled configuration structure
+ * - Creates service info structure from instance
+ * - Ensures cache directory exists
+ * - Marshals service info to JSON
+ * - Writes to service-specific JSON file in .costrict/cache/services/
  * @throws
- * - HTTP request errors
- * - HTTP status code errors
- * - Response body reading errors
- * - JSON unmarshaling errors
- * @example
- * config, err := FetchRemoteSystemSpecification()
- * if err != nil {
- *     logger.Fatal(err)
- * }
+ * - Directory creation errors
+ * - JSON marshaling errors
+ * - File write errors
  */
-func FetchRemoteSystemSpecification() error {
-	cfg := utils.UpgradeConfig{}
-	cfg.PackageName = "system"
-	cfg.TargetPath = filepath.Join(config.Config.Directory.Share, "system-spec.json")
-	cfg.Correct()
+func (sm *ServiceManager) saveService(svc *ServiceInstance) {
+	// 确保缓存目录存在
+	cacheDir := filepath.Join(env.CostrictDir, "cache", "services")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		logger.Errorf("Service [%s] save info failed, error: %v", svc.Spec.Name, err)
+		return
+	}
 
-	curVer, _ := utils.GetLocalVersion(cfg)
-	retVer, err := utils.UpgradePackage(cfg, curVer, nil)
+	// 序列化为JSON
+	jsonData, err := json.MarshalIndent(svc, "", "  ")
 	if err != nil {
-		logger.Errorf("fetch config failed: %v", err)
-		return err
+		logger.Errorf("Service [%s] save info failed, error: %v", svc.Spec.Name, err)
+		return
 	}
-	if utils.CompareVersion(retVer, curVer) == 0 {
-		logger.Infof("The '%s' version is up to date\n", cfg.PackageName)
-	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(retVer))
-	}
-	return nil
 
+	// 写入文件
+	cacheFile := filepath.Join(cacheDir, svc.Spec.Name+".json")
+	if err := os.WriteFile(cacheFile, jsonData, 0644); err != nil {
+		logger.Errorf("Service [%s] save info failed, error: %v", svc.Spec.Name, err)
+		return
+	}
+
+	logger.Infof("Service [%s] info saved to %s", svc.Spec.Name, cacheFile)
 }
 
-func (sm *ServiceManager) LoadConfig() error {
-	FetchRemoteSystemSpecification()
+func (sm *ServiceManager) loadService(name string, svc *ServiceInstance) error {
+	cacheFile := filepath.Join(env.CostrictDir, "cache", "services", name+".json")
 
-	fname := filepath.Join(config.Config.Directory.Share, "system-spec.json")
+	// 检查缓存文件是否存在
+	if _, err := os.Stat(cacheFile); os.IsNotExist(err) {
+		logger.Debugf("No cache file found for service %s, skipping", name)
+		return os.ErrNotExist
+	}
 
-	bytes, err := os.ReadFile(fname)
+	// 读取缓存文件
+	jsonData, err := os.ReadFile(cacheFile)
 	if err != nil {
-		return fmt.Errorf("load 'system-spec.json' failed: %v", err)
+		logger.Errorf("Failed to read cache file for service %s: %v", name, err)
+		return err
 	}
-	var spec models.SystemSpecification
-	if err := json.Unmarshal(bytes, &spec); err != nil {
-		return fmt.Errorf("unmarshal 'system-spec.json' failed: %v", err)
+
+	// 反序列化服务实例
+	var cachedInstance ServiceInstance
+	if err := json.Unmarshal(jsonData, &cachedInstance); err != nil {
+		logger.Errorf("Failed to unmarshal cache data for service %s: %v", name, err)
+		return err
 	}
-	sm.Services = spec.Services
+
+	// 验证缓存的服务实例名称是否匹配
+	if cachedInstance.Name != name {
+		logger.Warnf("Cache file name mismatch for service %s (cached name: %s), skipping", name, cachedInstance.Name)
+		return fmt.Errorf("not matched")
+	}
+
+	// 更新服务实例状态
+	svc.Pid = cachedInstance.Pid
+	svc.Status = cachedInstance.Status
+	svc.StartTime = cachedInstance.StartTime
+	svc.Port = cachedInstance.Port
+
+	// 如果服务状态为running，尝试重新关联进程
+	if svc.Pid > 0 {
+		svc.proc, err = sm.getProcessInstance(svc)
+		if err != nil {
+			logger.Errorf("Process %d for service %s configure error: %v", svc.Pid, name, err)
+			svc.Status = "exited"
+			svc.Pid = 0
+			sm.saveService(svc)
+			return err
+		}
+		err := sm.pm.AttachProcess(svc.proc, svc.Pid)
+		if err != nil {
+			logger.Warnf("Process %d for service %s not found, marking as exited", svc.Pid, name)
+			svc.Status = "exited"
+			svc.Pid = 0
+			sm.saveService(svc)
+			return err
+		} else {
+			// 进程存在
+			logger.Infof("Service %s process %d is still running", name, svc.Pid)
+		}
+	}
+
+	logger.Infof("Successfully loaded service %s from cache", name)
+
 	return nil
 }
 
 func (sm *ServiceManager) StartAll(ctx context.Context) error {
-	for _, svc := range sm.Services {
-		// 只启动启动模式为 "always" 的服务
-		if svc.Startup == "always" {
-			if err := sm.StartService(ctx, svc.Name); err != nil {
-				return err
+	for _, svc := range sm.services {
+		// 只启动启动模式为 "always"和"once" 的服务
+		if svc.Spec.Startup == "always" || svc.Spec.Startup == "once" {
+			if svc.Status == "running" {
+				continue
+			}
+			if err := sm.startService(ctx, svc); err != nil {
+				logger.Errorf("Failed to start service '%s': %v", svc.Spec.Name, err)
 			}
 		}
 	}
 	return nil
 }
 
-func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
-	var svcConfig *models.ServiceSpecification
-	for _, svc := range sm.Services {
-		if svc.Name == name {
-			svcConfig = &svc
-			break
-		}
+func (sm *ServiceManager) StopAll() {
+	for _, svc := range sm.services {
+		sm.stopService(svc)
 	}
+	if env.Daemon {
+		sm.self.Pid = 0
+		sm.self.Port = 0
+		sm.self.Status = "stopped"
+		sm.saveService(&sm.self)
+	}
+	sm.export()
+}
 
-	if svcConfig == nil {
-		return fmt.Errorf("service %s not found", name)
+func (sm *ServiceManager) getProcessInstance(svc *ServiceInstance) (*ProcessInstance, error) {
+	name := svc.Spec.Name
+	if runtime.GOOS == "windows" {
+		name = fmt.Sprintf("%s.exe", svc.Spec.Name)
 	}
-
-	// 检查服务启动模式
-	if svcConfig.Startup == "none" {
-		return fmt.Errorf("service %s is configured not to start automatically", name)
+	args := ServiceArgs{
+		LocalPort:   svc.Port,
+		ProcessName: name,
+		ProcessPath: filepath.Join(env.CostrictDir, "bin", name),
 	}
-
-	// 检查服务是否已经在运行
-	if _, ok := sm.runningSvcs[name]; ok {
-		return fmt.Errorf("service %s is already running", name)
-	}
-
-	upgradeCfg := utils.UpgradeConfig{
-		PackageName: name,
-		TargetPath:  svcConfig.Command,
-	}
-	upgradeCfg.Correct()
-	// 首先尝试升级服务到最新版本
-	curVer, _ := utils.GetLocalVersion(upgradeCfg)
-	retVer, err := utils.UpgradePackage(upgradeCfg, curVer, nil)
+	command, cmdArgs, err := utils.GetCommandLine(svc.Spec.Command, svc.Spec.Args, args)
 	if err != nil {
-		logger.Errorf("The '%s' upgrade failed: %v", name, err)
+		return nil, err
+	}
+	return NewProcessInstance("service "+svc.Name, name, command, cmdArgs), nil
+}
+
+func (sm *ServiceManager) startService(ctx context.Context, svc *ServiceInstance) error {
+	spec := &svc.Spec
+	port, err := utils.AllocPort(spec.Port)
+	if err != nil {
 		return err
 	}
-	if utils.CompareVersion(retVer, curVer) == 0 {
-		logger.Infof("The '%s' version is up to date\n", name)
+	svc.Port = port
+
+	svc.proc, err = sm.getProcessInstance(svc)
+	if err != nil {
+		return err
+	}
+	svc.proc.SetRestartCallback(func(pi *ProcessInstance) {
+		svc.Pid = pi.Pid
+		svc.Status = "running"
+		sm.saveService(svc)
+	})
+	if err := sm.pm.StartProcess(svc.proc); err != nil {
+		return err
+	}
+	svc.Pid = svc.proc.Pid
+	svc.StartTime = time.Now().Format(time.RFC3339)
+	svc.Status = "running"
+
+	if spec.Accessible == "remote" {
+		svc.tun, err = sm.tm.StartTunnel(spec.Name, svc.Port)
+		if err != nil {
+			logger.Errorf("Start tunnel %s:%d failed: %v", spec.Name, svc.Port, err)
+		} else {
+			logger.Infof("Start tunnel %s:%d -> %d succeeded", spec.Name, svc.Port, svc.tun.MappingPort)
+		}
 	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", name, utils.PrintVersion(retVer))
+		logger.Infof("ignore %s", spec.Name)
 	}
-	// 启动服务进程
-	cmd := exec.CommandContext(ctx, svcConfig.Command)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start service %s: %v", name, err)
-	}
+	sm.saveService(svc)
+	sm.export()
+	return nil
+}
 
-	// 创建服务实例并保存到运行服务列表中
-	instance := &ServiceInstance{
-		PID:     cmd.Process.Pid,
-		Command: cmd,
-		Status:  "running",
+func (sm *ServiceManager) stopService(svc *ServiceInstance) {
+	if svc.proc != nil {
+		if err := sm.pm.StopProcess(svc.proc); err != nil {
+			logger.Errorf("Failed to stop the service %s (PID: %d)", svc.Spec.Name, svc.Pid)
+		} else {
+			logger.Infof("Successfully stopped the service %s (PID: %d)", svc.Spec.Name, svc.Pid)
+		}
 	}
-	sm.runningSvcs[name] = instance
+	if svc.tun != nil {
+		if err := sm.tm.CloseTunnel(svc.Name, svc.Port); err != nil {
+			logger.Errorf("Failed to close tunnel %s (Port: %d)", svc.Name, svc.Port)
+		} else {
+			logger.Infof("Successfully closed the tunnel %s (Port: %d)", svc.Name, svc.Port)
+		}
+		svc.tun = nil
+	}
+	svc.Status = "stopped"
+	svc.Pid = 0
+	svc.proc = nil
+	sm.saveService(svc)
+	sm.export()
+}
 
+func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
+	svc, ok := sm.services[name]
+	if !ok {
+		return fmt.Errorf("service %s not found", name)
+	}
+	if svc.Status == "running" {
+		return fmt.Errorf("service %s is already running", name)
+	}
+	if err := sm.startService(ctx, svc); err != nil {
+		logger.Errorf("Start [%s] failed: %v", name, err)
+		return err
+	}
 	return nil
 }
 
 func (sm *ServiceManager) RestartService(ctx context.Context, name string) error {
-	if err := sm.StopService(name); err != nil {
+	svc, ok := sm.services[name]
+	if !ok {
+		logger.Errorf("Restart [%s] failed: service not found", name)
+		return fmt.Errorf("service %s not found", name)
+	}
+	if svc.Status == "running" {
+		sm.stopService(svc)
+	}
+	if err := sm.startService(ctx, svc); err != nil {
+		logger.Errorf("Restart [%s] failed: %v", name, err)
 		return err
 	}
-	return sm.StartService(ctx, name)
+	return nil
 }
 
 func (sm *ServiceManager) StopService(name string) error {
-	// 检查服务是否存在
-	var svcConfig *models.ServiceSpecification
-	for _, svc := range sm.Services {
-		if svc.Name == name {
-			svcConfig = &svc
-			break
-		}
-	}
-
-	if svcConfig == nil {
+	svc, ok := sm.services[name]
+	if !ok {
+		logger.Errorf("Stop [%s] failed: service not found", name)
 		return fmt.Errorf("service %s not found", name)
 	}
-
-	// 检查服务是否在运行
-	if instance, ok := sm.runningSvcs[name]; ok {
-		// 如果进程还在运行，尝试终止它
-		if instance.Command.Process != nil {
-			if err := instance.Command.Process.Kill(); err != nil {
-				return fmt.Errorf("failed to kill process for service %s: %v", name, err)
-			}
-			// 等待进程退出
-			instance.Command.Wait()
-		}
-		// 从运行服务列表中移除
-		delete(sm.runningSvcs, name)
+	if svc.Status != "running" {
+		return nil
 	}
-
+	sm.stopService(svc)
 	return nil
 }
 
 func (sm *ServiceManager) CheckServices() error {
-	for _, svc := range sm.Services {
-		if !sm.IsServiceHealthy(svc.Name) {
-			// 如果服务不健康，尝试重启
-			if err := sm.RestartService(context.Background(), svc.Name); err != nil {
-				return fmt.Errorf("failed to restart service %s: %v", svc.Name, err)
-			}
+	for _, svc := range sm.services {
+		if svc.Status == "running" && svc.Port > 0 && !utils.CheckPortConnectable(svc.Port) {
+			logger.Errorf("Service [%s] is unhealthy", svc.Spec.Name)
 		}
 	}
 	return nil
 }
 
-func NewServiceManager() *ServiceManager {
-	sm := &ServiceManager{
-		runningSvcs: make(map[string]*ServiceInstance),
+/**
+ * Export service known to well-known.json file
+ * @param {context.Context} ctx - Context for request cancellation and timeout
+ * @param {string} customOutputPath - Custom output file path, if empty uses default path
+ * @returns {error} Returns error if export fails, nil on success
+ * @description
+ * - Creates new service manager instance
+ * - Collects all components, services and endpoints information
+ * - Builds WellKnownInfo structure with timestamp
+ * - Writes data to JSON file at specified or default location
+ * - Creates necessary directories if they don't exist
+ * @throws
+ * - Component/service information retrieval errors
+ * - Directory creation errors
+ * - JSON encoding errors
+ * - File writing errors
+ * @example
+ * err := ExportKnowledge(context.Background(), "")
+ * if err != nil {
+ *     logger.Fatal(err)
+ * }
+ */
+func (sm *ServiceManager) ExportKnowledge(outputPath string) error {
+	if err := sm.exportKnowledge(outputPath); err != nil {
+		logger.Errorf("Failed to export .well-known to file [%s]: %v", outputPath, err)
+		return err
 	}
-	sm.LoadConfig()
-	return sm
+	return nil
+}
+
+func (sm *ServiceManager) exportKnowledge(outputPath string) error {
+	serviceKnowledge := []models.ServiceKnowledge{}
+	serviceKnowledge = append(serviceKnowledge, sm.getSelfKnowledge())
+	for _, svc := range sm.services {
+		serviceKnowledge = append(serviceKnowledge, sm.getServiceKnowledge(svc))
+	}
+	// 构建日志知识
+	logKnowledge := models.LogKnowledge{
+		Dir:   filepath.Join(env.CostrictDir, "logs"),
+		Level: config.Get().Log.Level,
+	}
+
+	// 构建要导出的信息结构
+	info := models.SystemKnowledge{
+		Logs:     logKnowledge,
+		Services: serviceKnowledge,
+	}
+
+	// 确保目录存在
+	outputDir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("创建输出目录失败: %v", err)
+	}
+
+	// 将信息编码为 JSON
+	jsonData, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return fmt.Errorf("JSON 编码失败: %v", err)
+	}
+	// 写入文件
+	if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
+		return fmt.Errorf("写入文件失败: %v", err)
+	}
+	return nil
+}
+
+func (sm *ServiceManager) export() error {
+	outputFile := filepath.Join(env.CostrictDir, "share", ".well-known.json")
+	if err := sm.exportKnowledge(outputFile); err != nil {
+		logger.Errorf("Failed to export .well-known to file [%s]: %v", outputFile, err)
+		return err
+	}
+	return nil
 }

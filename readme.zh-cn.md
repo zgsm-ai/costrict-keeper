@@ -1,25 +1,25 @@
-# 移动端命令行程序管理器(costrict-keeper)
+# 客户端命令行程序管理器(costrict-keeper)
 
 ## 1. 目的
 
-在移动端，可能有多个服务，如果完全由vscode扩展进行管理，会让扩展变得复杂。
+在客户端，可能有多个服务，如果完全由vscode扩展进行管理，会让扩展变得复杂。
 
 使用一个独立的命令行程序管理器，管理多个CLI程序的下载、安装、启动、配置、监控、服务注册，可以大大简化vscode扩展的复杂度。
 
 ## 2. 技术原理
 
-costrict-keeper管理移动端可用的一系列的组件(component)，以及需要自动运行的各种服务(service)，维护一个高可用的移动端软件服务子系统(subsystem)。
+costrict-keeper管理客户端可用的一系列的组件(component)，以及需要自动运行的各种服务(service)，维护一个高可用的客户端软件服务子系统(system)。
 
-costrict-keeper连接云端，获取各移动端的子系统定义文件，该文件描述了移动端软件服务子系统的构成以及管理方式。
+costrict-keeper连接云端，获取各客户端的子系统定义文件，该文件描述了客户端软件服务子系统的构成以及管理方式。
 
 * 组件：根据定义文件，costrict-keeper负责下载需要的各种组件，并维护这些组件的生命周期。
 * 服务：根据定义文件，costrict-keeper负责启动各个服务，并监控服务的运行状态。
 
 ## 3. 整体方案
 
-costrict-keeper启动后，从`https://zgsm.sangfor.com/costrict/subsystem/packages/packages-<os>-<plat>.json`获取子系统定义文件的版本列表。根据列表定义的版本，获取最新版本的软件服务子系统定义文件。
+costrict-keeper启动后，从`https://zgsm.sangfor.com/costrict/system/<os>/<plat>/platform.json`获取子系统定义文件的版本列表。根据列表定义的版本，获取最新版本的软件服务子系统定义文件。
 
-根据子系统定义文件，下载移动端需要的各种组件，启动需要自动启动的服务。
+根据子系统定义文件，下载客户端需要的各种组件，启动需要自动启动的服务。
 
 costrict-keeper提供可靠性、可调试性辅助机制。
 
@@ -29,24 +29,24 @@ costrict-keeper提供可靠性、可调试性辅助机制。
 4. 可靠性：服务启动后，costrict-keeper监控服务的运行，保证服务正常运行。如果服务运行发生故障，costrict-keeper会自动重启服务。
 5. 可调试性：costrict-keeper实现日志、事件、指标的上报，包括自动上报，手动上报等。
 
-   - 日志上报：移动端各组件统一把日志保存在logs目录，由costrict-keeper统一上报到云端；
-   - 事件上报：移动端各组件自行上报事件，如果上报失败，则把事件保存在events目录，由costrict-keeper定时尝试上报；
-   - 指标上报：移动端各组件统一实现/metrics接口，costrict-keeper定时从各个组件采集指标，通过pushgateway上报到prometheus。
+   - 日志上报：客户端各组件统一把日志保存在logs目录，由costrict-keeper统一上报到云端；
+   - 事件上报：客户端各组件自行上报事件，如果上报失败，则把事件保存在events目录，由costrict-keeper定时尝试上报；
+   - 指标上报：客户端各组件统一实现/metrics接口，costrict-keeper定时从各个组件采集指标，通过pushgateway上报到prometheus。
 
 ## 4. 结构设计
 
 ### 4.0. 整体说明
 
-costrict-keeper管理costrict移动端子系统的软件环境，包含以下类型：
+costrict-keeper管理costrict客户端子系统的软件环境，包含以下类型：
 
-- SystemSpecification: 系统定义，该类型定义一个子系统的构成。定义某个版本的移动子系统，应该包含哪些组件，以及服务。SystemSpecification中组件定义的类型是ComponentSpecification，服务定义的类型是ServiceSpecification；
+- SystemSpecification: 系统定义，该类型定义一个子系统的构成。定义某个版本的客户端子系统，应该包含哪些组件，以及服务。SystemSpecification中组件定义的类型是ComponentSpecification，服务定义的类型是ServiceSpecification；
 - Component: 组件，该类型记录一个组件的状态，比如是否已安装到本地，本地版本号等；
 - Service: 服务，服务是一种需要自动运行的组件
 - SystemKnownledge: 信息关键信息，主要包含服务的关键信息，即Service
 
-### 4.1. subsystem
+### 4.1. SystemSpecification
 
-系统定义SystemSpecification序列化为JSON文件(system-spec.json)，放在云端，供各个移动端下载。
+系统定义SystemSpecification序列化为JSON文件(system-spec.json)，放在云端，供各个客户端下载。
 
 JSON文件格式：
 
@@ -57,7 +57,7 @@ JSON文件格式：
     "arch": "amd64",            //配置文件适用的平台
     "version": "1.2.0",         //配置描述的软件包的版本，即构建出来的windows子系统的版本
     "manager": {                //服务管理器本身，服务管理器本身也是一个服务
-        "name": "costrict-keeper",
+        "name": "costrict",     //即costrict-keeper
         "version": "^1.0.0",
         "upgrade": {
             "mode": "auto",     //升级模式
@@ -80,7 +80,7 @@ JSON文件格式：
         "name": "codebase-parser",
         "version": "~1.1.1"
     }, {
-        "name": "chisel",
+        "name": "cotun",
         "version": "~1.0.0"
     }, {
         "name": "tunnel-client",
@@ -128,7 +128,7 @@ JSON文件格式：
     "version": "1.1.0",
     "installed": true,
     "startup": "always",
-    "status": "running",        //norun(未运行) -> running(运行中) -> stop(停止中) -> norun(未运行)
+    "status": "running",        //exited(未运行) -> running(运行中) -> exited(未运行)
     "protocol": "http",         //服务对外接口协议
     "port": 8080              //服务端口
 }
@@ -148,14 +148,14 @@ JSON文件格式：
 
 ### 4.4. SystemKnownledge
 
-SystemKnownledge保存软件服务子系统的各项参数，该数据结构默认序列化为`%APPDATA%/.costrict/share/.well-known.json`
+SystemKnownledge保存软件服务子系统的各项参数，该数据结构默认序列化为`%USERPROFILE%/.costrict/share/.well-known.json`
 
 序列化后格式如下：
 
 ```json
 {
     "logs": {
-        "dir": "%APPDATA%\\.costrict\\logs",
+        "dir": "%USERPROFILE%\\.costrict\\logs",
         "level": "INFO"
     },
     "services": [{
@@ -165,9 +165,9 @@ SystemKnownledge保存软件服务子系统的各项参数，该数据结构默�
         "startup": "always",    //启动方式
         "protocol": "http",     //服务对外接口协议
         "port": 8080,           //服务端口
-        "status": "norun"       //norun(未运行) -> running(运行中) -> stop(停止中) -> norun(未运行)
+        "status": "exited"      //exited(未运行) -> running(运行中) -> exited(未运行)
     }, {
-        "name": "costrict-keeper",
+        "name": "costrict",     //即costrict-keeper
         "version": "1.0.0",
         "installed": true,
         "startup": "always",
@@ -178,9 +178,9 @@ SystemKnownledge保存软件服务子系统的各项参数，该数据结构默�
 }
 ```
 
-### 4.5. 移动端软件服务子系统数据存储区(Storage)
+### 4.5. 客户端软件服务子系统数据存储区(Storage)
 
-Storage是一个保存软件服务子系统数据的目录，位于`%APPDATA%/.costrict`。
+Storage是一个保存软件服务子系统数据的目录，位于`%USERPROFILE%/.costrict`(或`$HOME/.costrict`)。
 
 其结构如下：
 
@@ -190,6 +190,39 @@ Storage是一个保存软件服务子系统数据的目录，位于`%APPDATA%/.c
           +-/logs: 日志区
           +-/share: 交换区(共享数据区,vscode扩展与子系统的数据交换)
           +-/cache: 运行状态区(缓存costrict-keeper管理的组件&服务的状态，保证服务和CLI可以并发工作，无惧程序崩溃)
+```
+
+### 4.6. 软件分发服务器的包目录
+
+客户端可通过URL `https://zgsm.sangfor.com/costrict/` 下载软件，该URL下保存多个包，目录结构如下：
+
+```sh
+#
+# 包管理系统的目录结构：
+#
+#-/-+-<package>/-+-<os>/-+-<arch>/-+-<ver>/-+-package.json: 对包数据文件进行签名保护
+#   |            |       |         |        +-<package-data-file>
+#   |            |       |         +-platform.json: 某个平台支持哪些版本
+#   |            |       +-amd64-...
+#   |            +-windows-...
+#   |            +-platforms.json: 某个包支持哪些平台(OS&芯片架构)
+#   +-packages.json: 系统有哪些包可以下载
+#
+```
+
+### 4.7. 用户信息
+
+以下信息由vscode写入，供客户端所有程序读取。
+
+```json
+{
+    "user": "1382436ddd",
+    "username": "zbc",
+    "access_token": "xxx",
+    "machine_id": "",
+    "base_url": ""
+}
+
 ```
 
 ## 5. 接口
@@ -314,7 +347,7 @@ costrict service status
 costrict service known --output ./service-statuses.json
 ```
 
-output未指定，则默认保存到`%APPDATA%/.costrict/share/.well-known.json`
+output未指定，则默认保存到`%USERPROFILE%/.costrict/share/.well-known.json`
 
 #### 5.2.8. 上报日志
 
@@ -354,16 +387,16 @@ pushgateway提供的上报地址，从命令行参数中获取，如果命令行
 sequenceDiagram
     participant IDE
     participant Cloud
-    participant CostrictHost
+    participant CostrictKeeper
     participant Services
     
     IDE->>IDE: S0: 将访问云端的access-token写到交换区
-    IDE->>Cloud: S1: 获取CostrictHost包版本列表
-    IDE->>Cloud: S2: 获取Latest版本的CostrictHost软件包
-    IDE->>IDE: S3: 安装启动CostrictHost
+    IDE->>Cloud: S1: 获取CostrictKeeper包版本列表
+    IDE->>Cloud: S2: 获取Latest版本的CostrictKeeper软件包
+    IDE->>IDE: S3: 安装启动CostrictKeeper
     
     loop 5分钟内每5秒轮询一次,后续逐渐加长到30s
-        IDE->>CostrictHost: S4: 获取服务列表，获得服务侦听端口
+        IDE->>CostrictKeeper: S4: 获取服务列表，获得服务侦听端口
         alt 服务为可用状态
             IDE->>Services: S5: 调用服务接口，如同步数据等
         else 服务
@@ -376,9 +409,9 @@ sequenceDiagram
 
 | 步骤 | 步骤逻辑 | 说明 |
 |----|----|-----|
-| S0 | 将访问云端的access-token写到交换区 | 保存到`%APPDATA%/.costrict/share/access-token` |
-| S1 | 获取CostrictHost包版本列表 | URL: `https://zgsm.sangfor.com/costrict/costrict-keeper/packages/packages-<os>-<plat>.json`|
-| S2 | 获取Latest版本的CostrictHost软件包 | 根据`packages-<os>-<plat>.json`中的URL获取包描述文件以及包数据文件（做法和上一版本相同） |
-| S3 | 安装启动CostrictHost | 需要校验包的合法性（做法和上一版本相同） |
-| S4 | 获取服务列表，获得服务侦听端口 |获取服务列表有两种方法：RESTful接口，或直接读取`%APPDATA%/.costrict/share/.well-known.json`文件<br/>服务列表即Service的数组，Service数据格式参考：`4.2. Service`。<br/>CostrictHost本身的接口也在`.well-known.json`中可查 |
+| S0 | 将访问云端的access-token写到交换区 | 保存到`%USERPROFILE%/.costrict/share/access-token` |
+| S1 | 获取CostrictKeeper包版本列表 | URL: `https://zgsm.sangfor.com/costrict/costrict/<os>/<plat>/platform.json`|
+| S2 | 获取Latest版本的CostrictKeeper软件包 | 根据`platform.json`中的URL获取包描述文件以及包数据文件（做法和上一版本相同） |
+| S3 | 安装启动CostrictKeeper | 需要校验包的合法性（做法和上一版本相同） |
+| S4 | 获取服务列表，获得服务侦听端口 |获取服务列表有两种方法：RESTful接口，或直接读取`%USERPROFILE%/.costrict/share/.well-known.json`文件<br/>服务列表即Service的数组，Service数据格式参考：`4.2. Service`。<br/>CostrictKeeper本身的接口也在`.well-known.json`中可查 |
 

@@ -1,3 +1,20 @@
+// @title Costrict Keeper API
+// @version 1.0
+// @description This is the API server for Costrict Keeper
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.url http://www.swagger.io/support
+// @contact.email support@swagger.io
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:8999
+// @BasePath /
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization
 package main
 
 import (
@@ -12,12 +29,7 @@ func main() {
 	// 检查是否是服务器模式
 	isServerMode := len(os.Args) > 1 && os.Args[1] == "server"
 
-	// 根据运行模式初始化日志系统
-	if isServerMode {
-		logger.InitLoggerWithMode(&config.Config.Log, true)
-	} else {
-		logger.InitLoggerWithMode(&config.Config.Log, false)
-	}
+	logger.InitLogger(config.Get().Log.Path, config.Get().Log.Level, isServerMode, config.Get().Log.MaxSize)
 
 	if err := root.RootCmd.Execute(); err != nil {
 		logger.Fatal(err)

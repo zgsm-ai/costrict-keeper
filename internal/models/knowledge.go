@@ -1,12 +1,25 @@
 package models
 
+type RunStatus string
+
+const (
+	//	表示未运行或程序主动退出，正常停止
+	StatusExited RunStatus = "exited"
+	// 表示正在运行
+	StatusRunning RunStatus = "running"
+	// 表示被用户手动停止
+	StatusStopped RunStatus = "stopped"
+	// 表示出错停止
+	StatusError RunStatus = "error"
+)
+
 /**
  * Service object (serialized to JSON format)
  * @property {string} name - Service name
  * @property {string} version - Service version
  * @property {bool} installed - Whether the service is installed
  * @property {string} startup - Startup mode: always/once/none
- * @property {string} status - Service status: norun/running/stop
+ * @property {string} status - Service status: exited/running/stopped/error
  * @property {string} protocol - Service protocol
  * @property {int} port - Service port
  * @property {string} command - Startup command

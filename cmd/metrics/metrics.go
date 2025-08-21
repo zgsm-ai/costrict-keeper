@@ -18,23 +18,23 @@ var (
 func init() {
 	root.RootCmd.AddCommand(Cmd)
 	Cmd.Flags().SortFlags = false
-	Cmd.Flags().StringVarP(&pushGatewayAddr, "addr", "a", "", "Pushgateway地址")
-	Cmd.Flags().DurationP("timeout", "t", 30*time.Second, "指标采集超时时间")
+	Cmd.Flags().StringVarP(&pushGatewayAddr, "addr", "a", "", "Pushgateway address")
+	Cmd.Flags().DurationP("timeout", "t", 30*time.Second, "Metrics collection timeout")
 }
 
 var Cmd = &cobra.Command{
 	Use:   "metrics",
-	Short: "上报Prometheus指标",
+	Short: "Reporting statistical indicators",
 	Run: func(cmd *cobra.Command, args []string) {
-		// 保留timeout变量供后续扩展使用
+		// Keep timeout variable for future extension use
 		_, _ = cmd.Flags().GetDuration("timeout")
 
 		if pushGatewayAddr == "" {
-			pushGatewayAddr = config.Config.Metrics.Pushgateway
+			pushGatewayAddr = config.Get().Cloud.PushgatewayUrl
 		}
 
 		if err := services.CollectAndPushMetrics(pushGatewayAddr); err != nil {
-			fmt.Printf("指标服务启动失败: %v\n请检查Pushgateway地址是否正确且可访问", err)
+			fmt.Printf("Failed to start metrics service: %v\nPlease check if the gateway address is correct and accessible", err)
 		}
 	},
 }
