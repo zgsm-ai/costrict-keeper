@@ -185,7 +185,7 @@ func InitLogger(logPath, level string, isServerMode bool, maxSize int64) {
 	logLevel := GetLogLevelFromString(level)
 
 	// 创建不同级别的日志器
-	flags := log.LstdFlags | log.Lshortfile
+	flags := log.LstdFlags
 
 	defaultLogger = &Logger{
 		debugLogger: log.New(io.Discard, "DEBUG: ", flags),

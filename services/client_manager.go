@@ -36,7 +36,20 @@ var (
 	clientOnce    sync.Once
 )
 
-// GetClientManager 获取客户端管理器单例
+/**
+ * Get client manager singleton instance
+ * @returns {ClientManager} Returns the singleton ClientManager instance
+ * @description
+ * - Implements singleton pattern to ensure only one ClientManager exists
+ * - Initializes client manager with app config and HTTP client
+ * - Sets HTTP timeout to 30 seconds for all requests
+ * - Returns existing instance if already initialized
+ * @example
+ * manager := GetClientManager()
+ * if manager.IsServerRunning() {
+ *     logger.Info("Server is running")
+ * }
+ */
 func GetClientManager() *ClientManager {
 	clientOnce.Do(func() {
 		clientManager = &ClientManager{

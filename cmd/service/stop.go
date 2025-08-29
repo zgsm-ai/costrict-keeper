@@ -43,12 +43,17 @@ func stopService(serviceName string) error {
 	rpcClient := rpc.NewHTTPClient(config)
 	// 尝试连接服务器并调用 API
 	apiPath := fmt.Sprintf("/costrict/api/v1/services/%s/stop", serviceName)
-	_, err := rpcClient.Post(apiPath, nil)
+	resp, err := rpcClient.Post(apiPath, nil)
 	if err == nil {
-		fmt.Printf("Service %s has been stopped via costrict server\n", serviceName)
 		rpcClient.Close()
+		httpResp := resp.(*rpc.HTTPResponse)
+		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+			return fmt.Errorf("Failed to stop service %s via costrict server: %+v\n", serviceName, httpResp.Body)
+		}
+		fmt.Printf("Service %s has been stopped via costrict server\n", serviceName)
 		return nil
 	}
+
 	// 如果 API 调用失败，关闭连接并继续原有逻辑
 	rpcClient.Close()
 

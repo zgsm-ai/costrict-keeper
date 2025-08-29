@@ -15,10 +15,20 @@ import (
  * Server configuration parameters
  * @property {string} address - Server listening address (e.g. ":8080")
  * @property {string} mode - Application mode (debug/release/test)
+ * @property {int} midnightRoosterStartHour - Midnight rooster start hour (default: 3)
+ * @property {int} midnightRoosterEndHour - Midnight rooster end hour (default: 5)
+ * @property {int} monitoringInterval - Monitoring execution interval in seconds (default: 300)
+ * @property {int} metricsReportInterval - Metrics report execution interval in seconds, <=0 means disable (default: 300)
+ * @property {int} logReportInterval - Log report execution interval in seconds, <=0 means disable (default: 0)
  */
 type ServerConfig struct {
-	Address string `json:"address"`
-	Mode    string `json:"mode"`
+	Address                  string `json:"address"`
+	Mode                     string `json:"mode"`
+	MidnightRoosterStartHour int    `json:"midnight_rooster_start_hour"`
+	MidnightRoosterEndHour   int    `json:"midnight_rooster_end_hour"`
+	MonitoringInterval       int    `json:"monitoring_interval"`
+	MetricsReportInterval    int    `json:"metrics_report_interval"`
+	LogReportInterval        int    `json:"log_report_interval"`
 }
 
 type ServiceConfig struct {
@@ -94,6 +104,19 @@ func (cfg *AppConfig) correctConfig() {
 	if cfg.Server.Address == "" {
 		cfg.Server.Address = ":8999"
 	}
+	if cfg.Server.MidnightRoosterStartHour == 0 {
+		cfg.Server.MidnightRoosterStartHour = 3
+	}
+	if cfg.Server.MidnightRoosterEndHour == 0 {
+		cfg.Server.MidnightRoosterEndHour = 5
+	}
+	if cfg.Server.MonitoringInterval == 0 {
+		cfg.Server.MonitoringInterval = 300
+	}
+	if cfg.Server.MetricsReportInterval == 0 {
+		cfg.Server.MetricsReportInterval = 300
+	}
+	// LogReportInterval 默认为 0，表示不上报日志
 	if cfg.Cloud.BaseUrl == "" {
 		cfg.Cloud.BaseUrl = GetBaseURL()
 		if cfg.Cloud.BaseUrl == "" {

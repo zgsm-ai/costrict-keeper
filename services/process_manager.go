@@ -126,7 +126,6 @@ func NewProcessInstance(instanceName, processName, command string, args []string
  */
 func (p *ProcessInstance) SetRestartCallback(callback func(*ProcessInstance)) {
 	p.RestartCallback = callback
-	logger.Infof("Restart callback set for process '%s'", p.InstanceName)
 }
 
 func (pm *ProcessManager) SetAutoRestart(autoRestart bool) bool {
@@ -186,18 +185,15 @@ func (pm *ProcessManager) AttachProcess(proc *ProcessInstance, pid int) error {
 
 	// 检查进程名称是否已存在
 	if _, exists := pm.processes[proc.InstanceName]; exists {
+		logger.Warnf("Process name '%s' already exists", proc.InstanceName)
 		return fmt.Errorf("process name '%s' already exists", proc.InstanceName)
 	}
 
 	// 查找进程对象
-	processObj, err := os.FindProcess(pid)
+	processObj, err := utils.FindProcess(proc.ProcessName, pid)
 	if err != nil {
-		return fmt.Errorf("failed to find process with PID %d: %v", pid, err)
-	}
-	// 获取进程名
-	processName, err := utils.GetProcessName(pid)
-	if err != nil {
-		return fmt.Errorf("failed to get process name for PID %d: %v", pid, err)
+		logger.Warnf("Failed to find process '%s' with PID %d: %v", proc.ProcessName, pid, err)
+		return fmt.Errorf("failed to find process '%s' with PID %d: %v", proc.ProcessName, pid, err)
 	}
 
 	// 更新进程实例
@@ -213,7 +209,7 @@ func (pm *ProcessManager) AttachProcess(proc *ProcessInstance, pid int) error {
 	// 启动协程监控进程
 	go pm.monitorProcess(proc)
 
-	logger.Infof("Process '%s' attached (PID: %d, Original name: %s)", proc.InstanceName, pid, processName)
+	logger.Infof("Process '%s' attached (PID: %d, NAME: %s)", proc.InstanceName, pid, proc.ProcessName)
 	return nil
 }
 
@@ -240,6 +236,35 @@ func (pm *ProcessManager) StopProcess(proc *ProcessInstance) error {
 	return err
 }
 
+func (pm *ProcessManager) GetInstances() []*ProcessInstance {
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+
+	var procs []*ProcessInstance
+	for _, proc := range pm.processes {
+		procs = append(procs, proc)
+	}
+	return procs
+}
+
+func (pm *ProcessManager) MaintainProcesses() {
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+
+	for _, proc := range pm.processes {
+		if proc.Status != "running" {
+			continue
+		}
+		if proc.Pid == 0 {
+			continue
+		}
+		_, err := utils.FindProcess(proc.ProcessName, proc.Pid)
+		if err != nil {
+			pm.doProcessStopped(proc, err)
+		}
+	}
+}
+
 func (pm *ProcessManager) CheckProcesses() {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
@@ -251,7 +276,7 @@ func (pm *ProcessManager) CheckProcesses() {
 		if proc.Pid == 0 {
 			continue
 		}
-		_, err := os.FindProcess(proc.Pid)
+		_, err := utils.FindProcess(proc.ProcessName, proc.Pid)
 		if err != nil {
 			pm.doProcessStopped(proc, err)
 		}
@@ -284,6 +309,7 @@ func (pm *ProcessManager) startProcess(proc *ProcessInstance) error {
 
 	if err := cmd.Start(); err != nil {
 		proc.Status = "error"
+		proc.Pid = 0
 		proc.LastExitReason = fmt.Sprintf("start failed: %v", err)
 		return fmt.Errorf("failed to start process '%s': %v", proc.InstanceName, err)
 	}
@@ -406,14 +432,14 @@ func (pm *ProcessManager) restartProcess(proc *ProcessInstance) {
 		// 检查进程是否仍然存在且状态为停止
 		if curProc, exists := pm.processes[proc.InstanceName]; exists {
 			if proc.Status == "stopped" {
-				logger.Infof("Process '%s' stopped by user,  needn't restart", proc.InstanceName)
+				logger.Infof("Process '%s' stopped by user, needn't restart", proc.InstanceName)
 				return
 			}
 			// 重新创建命令和上下文
 			pm.startProcess(curProc)
 			// 调用重启回调函数通知Owner更新关键信息
 			if curProc.RestartCallback != nil {
-				logger.Infof("Calling startup callback for process '%s'", curProc.InstanceName)
+				logger.Infof("Calling restart callback for process '%s'", curProc.InstanceName)
 				curProc.RestartCallback(curProc)
 			}
 		}

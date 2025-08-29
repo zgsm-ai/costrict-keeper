@@ -1,4 +1,4 @@
-package metrics
+package client
 
 import (
 	"fmt"
@@ -16,13 +16,13 @@ var (
 )
 
 func init() {
-	root.RootCmd.AddCommand(Cmd)
-	Cmd.Flags().SortFlags = false
-	Cmd.Flags().StringVarP(&pushGatewayAddr, "addr", "a", "", "Pushgateway address")
-	Cmd.Flags().DurationP("timeout", "t", 30*time.Second, "Metrics collection timeout")
+	root.RootCmd.AddCommand(metricsCmd)
+	metricsCmd.Flags().SortFlags = false
+	metricsCmd.Flags().StringVarP(&pushGatewayAddr, "addr", "a", "", "Pushgateway address")
+	metricsCmd.Flags().DurationP("timeout", "t", 30*time.Second, "Metrics collection timeout")
 }
 
-var Cmd = &cobra.Command{
+var metricsCmd = &cobra.Command{
 	Use:   "metrics",
 	Short: "Reporting statistical indicators",
 	Run: func(cmd *cobra.Command, args []string) {

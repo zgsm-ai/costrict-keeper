@@ -1,4 +1,4 @@
-package logs
+package client
 
 import (
 	"fmt"
@@ -18,14 +18,14 @@ var (
 )
 
 func init() {
-	root.RootCmd.AddCommand(Cmd)
-	Cmd.Flags().SortFlags = false
-	Cmd.Flags().StringVarP(&logFile, "file", "f", "", "Log file path")
-	Cmd.Flags().StringVarP(&serviceName, "service", "s", "", "Service name")
-	Cmd.Flags().StringVarP(&directory, "directory", "d", "", "Log directory path")
+	root.RootCmd.AddCommand(logsCmd)
+	logsCmd.Flags().SortFlags = false
+	logsCmd.Flags().StringVarP(&logFile, "file", "f", "", "Log file path")
+	logsCmd.Flags().StringVarP(&serviceName, "service", "s", "", "Service name")
+	logsCmd.Flags().StringVarP(&directory, "directory", "d", "", "Log directory path")
 }
 
-var Cmd = &cobra.Command{
+var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Report logs to the cloud",
 	Run: func(cmd *cobra.Command, args []string) {

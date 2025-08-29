@@ -71,11 +71,12 @@ type Service_Columns struct {
  * - Uses tabwriter for formatted output
  */
 func showAllServicesStatus(manager *services.ServiceManager) error {
-	svcs := manager.GetInstances()
+	svcs := manager.GetAll()
 	if len(svcs) == 0 {
 		fmt.Println("No services found")
 		return nil
 	}
+
 
 	var dataList []*orderedmap.OrderedMap
 	for _, svc := range svcs {
@@ -113,7 +114,7 @@ func showAllServicesStatus(manager *services.ServiceManager) error {
  * - Service not found errors
  */
 func showSpecificServiceStatus(manager *services.ServiceManager, name string) error {
-	svcs := manager.GetInstances()
+	svcs := manager.GetAll()
 	componentManager := services.GetComponentManager()
 
 	for _, svc := range svcs {

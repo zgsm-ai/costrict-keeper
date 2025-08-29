@@ -14,12 +14,46 @@ type LogService struct {
 	cloudHost string
 }
 
+/**
+ * Create new log service instance
+ * @param {viper.Viper} cfg - Configuration instance containing cloud host settings
+ * @returns {LogService} Returns new log service instance
+ * @description
+ * - Creates and initializes a new LogService instance
+ * - Extracts cloud host configuration from provided viper instance
+ * - Used for uploading log files to cloud storage
+ * @example
+ * cfg := viper.New()
+ * cfg.Set("cloud.host", "cloud.example.com")
+ * logService := NewLogService(cfg)
+ */
 func NewLogService(cfg *viper.Viper) *LogService {
 	return &LogService{
 		cloudHost: cfg.GetString("cloud.host"),
 	}
 }
 
+/**
+ * Upload single log file to cloud storage
+ * @param {string} filePath - Path to the log file to upload
+ * @param {string} serviceName - Name of the service for organizing logs on server
+ * @returns {string} Returns destination path in cloud storage
+ * @returns {error} Returns error if upload fails, nil on success
+ * @description
+ * - Checks if the specified log file exists using os.Stat
+ * - Generates cloud destination path with timestamp
+ * - Simulates upload operation (currently just prints to console)
+ * - Format: cloud://{host}/{serviceName}/{filename}-{timestamp}.log
+ * @throws
+ * - File not found errors (os.Stat)
+ * - File path generation errors
+ * @example
+ * dest, err := logService.UploadLog("/var/log/app.log", "my-service")
+ * if err != nil {
+ *     log.Fatal(err)
+ * }
+ * fmt.Printf("Log uploaded to: %s", dest)
+ */
 func (ls *LogService) UploadLog(filePath string, serviceName string) (string, error) {
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return "", fmt.Errorf("日志文件不存在: %s", filePath)

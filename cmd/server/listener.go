@@ -24,7 +24,7 @@ type ListenerConfig struct {
 // DefaultListenerConfig 返回默认监听器配置
 /**
  * Returns default listener configuration
- * @returns {ListenerConfig} Default listener configuration with TCP port 8080 and socket name "costrict-keeper.sock"
+ * @returns {ListenerConfig} Default listener configuration with TCP port 8080 and socket name "costrict.sock"
  * @description
  * - Creates a default configuration for cross-platform server listening
  * - Sets TCP port to 8080 for HTTP server

@@ -10,10 +10,12 @@ import os, time, subprocess, sys, platform
 # --app
 opt_debug = False
 opt_install = False
-opt_software = "1.0.250813"
-opt_app = "costrict-keeper"
+opt_software = "1.1.0"
+opt_app = "costrict"
 opt_os = None
 opt_arch = None
+#opt_module = "github.com/zgsm-ai/{0}".format("costrict-keeper")
+opt_module = "costrict-keeper"
 opt_output = None
 opt_cgo_enabled=0
 
@@ -46,20 +48,18 @@ def last_commit_id():
 # Assemble build command.
 def build_cmd():
     build_flags = []
-    # module_id = "github.com/zgsm-ai/{0}".format(opt_app)
-    module_id = opt_app
 
-    build_flags.append("-X '{0}/cmd.SoftwareVer={1}'".format(module_id, opt_software))
+    build_flags.append("-X '{0}/cmd.SoftwareVer={1}'".format(opt_module, opt_software))
     last_git_tag = last_tag()
     if last_git_tag != "":
-        build_flags.append("-X '{0}/cmd.BuildTag={1}'".format(module_id, last_git_tag))
+        build_flags.append("-X '{0}/cmd.BuildTag={1}'".format(opt_module, last_git_tag))
 
     commit_id = last_commit_id()
     if commit_id != "":
-        build_flags.append("-X '{0}/cmd.BuildCommitId={1}'".format(module_id, commit_id))
+        build_flags.append("-X '{0}/cmd.BuildCommitId={1}'".format(opt_module, commit_id))
 
     # current time
-    build_flags.append("-X '{0}/cmd.BuildTime={1}'".format(module_id, 
+    build_flags.append("-X '{0}/cmd.BuildTime={1}'".format(opt_module, 
         time.strftime("%Y-%m-%d %H:%M:%S")))
 
     debug_flag = ""

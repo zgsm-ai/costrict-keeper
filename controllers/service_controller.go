@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"costrict-keeper/services"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
@@ -121,8 +122,13 @@ func (s *ServiceController) StartService(c *gin.Context) {
 func (s *ServiceController) StopService(c *gin.Context) {
 	name := c.Param("name")
 
+	if name == "costrict" {
+		c.JSON(200, gin.H{"status": "success"})
+		os.Exit(0)
+		return
+	}
 	if err := s.service.StopService(name); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(404, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(200, gin.H{"status": "success"})
@@ -145,7 +151,7 @@ func (s *ServiceController) GetService(c *gin.Context) {
 
 	svc := s.service.GetInstance(name)
 	if svc != nil {
-		c.JSON(200, s.service.GetServiceDetail(svc))
+		c.JSON(200, services.GetServiceDetail(svc))
 		return
 	}
 

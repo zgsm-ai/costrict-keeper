@@ -8,9 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -156,27 +154,4 @@ func GetSocketPath(socketName string, socketDir string) string {
 		socketDir = filepath.Join(env.CostrictDir, "run")
 	}
 	return filepath.Join(socketDir, socketName)
-}
-
-/**
- * Get default socket directory for current platform
- * @returns {string} Platform-specific default socket directory
- * @description
- * - Returns "/var/tmp" for Darwin (macOS)
- * - Returns system temp directory for Windows
- * - Returns "/tmp" for Linux and other Unix-like systems
- * - Provides cross-platform socket directory detection
- * @example
- * socketDir := GetDefaultSocketDir()
- * fmt.Printf("Socket directory: %s", socketDir)
- */
-func GetDefaultSocketDir() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return "/var/tmp"
-	case "windows":
-		return os.TempDir()
-	default: // Linux and other Unix-like systems
-		return "/tmp"
-	}
 }

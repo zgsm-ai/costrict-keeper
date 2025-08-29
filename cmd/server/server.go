@@ -99,6 +99,7 @@ func startServer(ctx context.Context) error {
 	go svc.StartMonitoring()
 	go svc.StartReportMetrics()
 	go svc.StartLogReporting()
+	go svc.StartMidnightRooster()
 
 	// Create listeners for both TCP and Unix socket
 	listenerConfig := &ListenerConfig{
@@ -160,15 +161,11 @@ func startServer(ctx context.Context) error {
 	}
 
 	// Gracefully shutdown other services
-	if err := svc.StopAllService(ctx); err != nil {
-		logger.Error("Error stopping services:", err)
-	}
-
-	logger.Info("Server exited gracefully")
-
-	// Clean up PID file
+	svc.StopAllService(ctx)
+	services.UpdateCostrictStatus("exited")
 	cleanupPidFile()
 
+	logger.Info("Server exited gracefully")
 	return nil
 }
 

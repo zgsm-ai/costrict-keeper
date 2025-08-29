@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"costrict-keeper/internal/rpc"
+	"costrict-keeper/internal/utils"
 	"costrict-keeper/services"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -87,11 +89,48 @@ func startService(ctx context.Context, serviceName string) error {
  * }
  */
 func startServiceLocally(ctx context.Context, serviceName string) error {
+	if serviceName == services.COSTRICT_NAME {
+		return startCostrict()
+	}
 	manager := services.GetServiceManager()
 	if err := manager.StartService(ctx, serviceName); err != nil {
-		return fmt.Errorf("Failed to start service: %v", err)
+		return fmt.Errorf("failed to start service: %v", err)
 	}
 	fmt.Printf("Service %s has been started locally\n", serviceName)
+	return nil
+}
+
+func startCostrict() error {
+	svc := services.GetServiceManager().GetSelf()
+	svc.Port, _ = utils.AllocPort(svc.Spec.Port)
+	proc, err := svc.CreateProcessInstance()
+	if err != nil {
+		return err
+	}
+
+	fullCommand := proc.Command
+	for _, arg := range proc.Args {
+		fullCommand += " " + arg
+	}
+	fmt.Printf("Executing command: %s\n", fullCommand)
+
+	// 创建上下文用于控制进程
+	ctx, _ := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, proc.Command, proc.Args...)
+
+	// 设置工作目录
+	if proc.WorkDir != "" {
+		cmd.Dir = proc.WorkDir
+	}
+
+	// 设置进程属性，使子进程在父进程退出后继续运行
+	utils.SetNewPG(cmd)
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start process '%s': %v", proc.InstanceName, err)
+	}
+
+	fmt.Printf("Process '%s' started (PID: %d)\n", proc.InstanceName, cmd.Process.Pid)
 	return nil
 }
 

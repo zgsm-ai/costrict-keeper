@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"costrict-keeper/internal/rpc"
+	"costrict-keeper/internal/utils"
 	"costrict-keeper/services"
 	"fmt"
 
@@ -114,9 +115,14 @@ func restartServiceViaRPC(ctx context.Context, serviceName string) error {
  * }
  */
 func restartServiceLocally(ctx context.Context, serviceName string) error {
+	if serviceName == services.COSTRICT_NAME {
+		utils.KillSpecifiedProcess(services.COSTRICT_NAME)
+		startCostrict()
+		return nil
+	}
 	manager := services.GetServiceManager()
 	if err := manager.RestartService(ctx, serviceName); err != nil {
-		return fmt.Errorf("Failed to restart service: %v", err)
+		return fmt.Errorf("failed to restart service: %v", err)
 	}
 	fmt.Printf("Service %s has been restarted locally\n", serviceName)
 	return nil

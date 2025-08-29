@@ -3,7 +3,6 @@ package env
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 var Daemon bool = false
@@ -17,11 +16,6 @@ var CostrictDir string = GetCostrictDir()
  * @returns {string} Returns costrict directory path
  */
 func GetCostrictDir() string {
-	homeDir := "/root"
-	if runtime.GOOS == "windows" {
-		homeDir = os.Getenv("USERPROFILE")
-	} else {
-		homeDir = os.Getenv("HOME")
-	}
+	homeDir, _ := os.UserHomeDir()
 	return filepath.Join(homeDir, ".costrict")
 }

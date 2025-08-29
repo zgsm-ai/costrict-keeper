@@ -39,23 +39,22 @@ func upgradeComponent(component string, version string) error {
 		BaseUrl:     config.Get().Cloud.UpgradeUrl,
 	}
 	cfg.Correct()
-	curVer, _ := utils.GetLocalVersion(cfg)
 
 	var specVer *utils.VersionNumber
 	if version != "" {
 		v, err := utils.ParseVersion(version)
 		if err != nil {
-			return fmt.Errorf("Invalid version number: %s", version)
+			return fmt.Errorf("invalid version number: %s", version)
 		}
 		specVer = &v
 	}
 
-	retVer, err := utils.UpgradePackage(cfg, curVer, specVer)
+	retVer, upgraded, err := utils.UpgradePackage(cfg, specVer)
 	if err != nil {
 		fmt.Printf("The '%s' upgrade failed: %v", component, err)
 		return err
 	}
-	if utils.CompareVersion(retVer, curVer) == 0 {
+	if !upgraded {
 		fmt.Printf("The '%s' version is up to date\n", component)
 	} else {
 		fmt.Printf("The '%s' is upgraded to version %s\n", component, utils.PrintVersion(retVer))

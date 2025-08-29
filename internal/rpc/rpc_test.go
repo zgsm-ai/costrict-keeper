@@ -217,7 +217,18 @@ func TestHTTPClientWithMockServer(t *testing.T) {
 	}
 }
 
-// TestHTTPClientWithQueryParams 测试带查询参数的请求
+/**
+ * Test HTTP client with query parameters functionality
+ * @param {*testing.T} t - Testing framework instance
+ * @description
+ * - Creates mock HTTP server that handles query parameters
+ * - Server validates query parameters and returns them in response
+ * - Tests GET request with query parameters using custom HTTP client
+ * - Validates response status code and query parameter values
+ * - Ensures proper parameter passing and response parsing
+ * @example
+ * // Run this test with: go test -v -run TestHTTPClientWithQueryParams
+ */
 func TestHTTPClientWithQueryParams(t *testing.T) {
 	// 创建模拟HTTP服务器
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +287,17 @@ func TestHTTPClientWithQueryParams(t *testing.T) {
 	}
 }
 
-// TestSocketPathGeneration 测试Socket路径生成
+/**
+ * Test socket path generation functionality
+ * @param {*testing.T} t - Testing framework instance
+ * @description
+ * - Tests default socket path generation using Costrict directory
+ * - Validates socket path format and directory structure
+ * - Tests custom socket directory functionality
+ * - Ensures proper path joining and directory handling
+ * @example
+ * // Run this test with: go test -v -run TestSocketPathGeneration
+ */
 func TestSocketPathGeneration(t *testing.T) {
 	// 测试默认socket目录（现在使用Costrict目录）
 	socketPath := GetSocketPath("test.sock", "")
@@ -296,7 +317,18 @@ func TestSocketPathGeneration(t *testing.T) {
 	}
 }
 
-// TestCostrictSocketPath 测试Costrict项目的Socket路径
+/**
+ * Test Costrict project socket path functionality
+ * @param {*testing.T} t - Testing framework instance
+ * @description
+ * - Tests socket path generation specific to Costrict project
+ * - Creates temporary directory to simulate Costrict environment
+ * - Creates required run directory structure
+ * - Validates socket path generation in Costrict context
+ * - Restores original Costrict directory after test
+ * @example
+ * // Run this test with: go test -v -run TestCostrictSocketPath
+ */
 func TestCostrictSocketPath(t *testing.T) {
 	// 测试Costrict项目的socket路径生成
 	socketName := "costrict.sock"
@@ -324,7 +356,18 @@ func TestCostrictSocketPath(t *testing.T) {
 	}
 }
 
-// BenchmarkHTTPClient 性能测试
+/**
+ * Benchmark HTTP client performance
+ * @param {*testing.B} b - Benchmark testing framework instance
+ * @description
+ * - Creates mock HTTP server for benchmark testing
+ * - Sets up HTTP client with server URL and timeout
+ * - Performs warm-up requests before benchmarking
+ * - Runs parallel benchmark tests to measure performance
+ * - Measures HTTP request throughput and response times
+ * @example
+ * // Run this benchmark with: go test -bench=BenchmarkHTTPClient -benchmem
+ */
 func BenchmarkHTTPClient(b *testing.B) {
 	// 创建模拟HTTP服务器
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

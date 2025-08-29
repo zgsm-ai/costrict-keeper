@@ -102,7 +102,7 @@ func collectMetricsFromComponents() error {
 		}
 
 		// Check if svc is healthy
-		isHealthy := sm.IsServiceHealthy(svc.Name)
+		isHealthy := svc.IsHealthy()
 		healthValue := 0.0
 		if isHealthy {
 			healthValue = 1.0
@@ -185,7 +185,7 @@ func pushMetricsToGateway(addr string) error {
 	}
 
 	// Create a pusher to push metrics to the pushgateway
-	pusher := push.New(addr, "costrict-keeper")
+	pusher := push.New(addr, "costrict")
 
 	// Add default metrics
 	pusher.Collector(requestCount)

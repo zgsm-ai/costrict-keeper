@@ -38,13 +38,12 @@ func FetchRemoteSystemSpecification() error {
 	cfg.BaseUrl = Get().Cloud.UpgradeUrl
 	cfg.Correct()
 
-	curVer, _ := utils.GetLocalVersion(cfg)
-	retVer, err := utils.UpgradePackage(cfg, curVer, nil)
+	retVer, upgraded, err := utils.UpgradePackage(cfg, nil)
 	if err != nil {
 		logger.Errorf("fetch config failed: %v", err)
 		return err
 	}
-	if utils.CompareVersion(retVer, curVer) == 0 {
+	if !upgraded {
 		logger.Infof("The '%s' version is up to date\n", cfg.PackageName)
 	} else {
 		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(retVer))
