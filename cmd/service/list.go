@@ -71,12 +71,11 @@ type Service_Columns struct {
  * - Uses tabwriter for formatted output
  */
 func showAllServicesStatus(manager *services.ServiceManager) error {
-	svcs := manager.GetAll()
+	svcs := manager.GetInstances(true)
 	if len(svcs) == 0 {
 		fmt.Println("No services found")
 		return nil
 	}
-
 
 	var dataList []*orderedmap.OrderedMap
 	for _, svc := range svcs {
@@ -114,47 +113,49 @@ func showAllServicesStatus(manager *services.ServiceManager) error {
  * - Service not found errors
  */
 func showSpecificServiceStatus(manager *services.ServiceManager, name string) error {
-	svcs := manager.GetAll()
-	componentManager := services.GetComponentManager()
+	svc := manager.GetSelf()
+	if name != services.COSTRICT_NAME {
+		svc = manager.GetInstance(name)
+		if svc == nil {
+			return fmt.Errorf("Service named '%s' not found", name)
+		}
+	}
+	detail := svc.GetDetail()
+	component := detail.Component
 
-	for _, svc := range svcs {
-		if svc.Name != name {
-			continue
-		}
-		fmt.Printf("=== Detailed information of service '%s' ===\n", name)
-		fmt.Printf("Name: %s\n", svc.Name)
-		fmt.Printf("Running status: %s\n", svc.Status)
-		fmt.Printf("Port: %d\n", svc.Port)
-		fmt.Printf("PID: %d\n", svc.Pid)
-		fmt.Printf("Start time: %s\n", svc.StartTime)
-		fmt.Printf("Startup command: %s\n", svc.Spec.Command)
-		fmt.Printf("Startup mode: %s\n", svc.Spec.Startup)
-		fmt.Printf("Protocol: %s\n", svc.Spec.Protocol)
-		if svc.Spec.Metrics != "" {
-			fmt.Printf("Metrics endpoint: %s\n", svc.Spec.Metrics)
-		}
-		if svc.Spec.Accessible != "" {
-			fmt.Printf("Access permission: %s\n", svc.Spec.Accessible)
-		}
-		component := componentManager.GetComponent(svc.Name)
-		// Display version information
-		if component != nil {
-			fmt.Printf("Local version: %s\n", component.LocalVersion)
-			fmt.Printf("Latest server version: %s\n", component.RemoteVersion)
-		} else {
-			fmt.Printf("Local version: Not installed\n")
-			fmt.Printf("Latest server version: Unable to retrieve\n")
-		}
+	fmt.Printf("=== Detailed information of service '%s' ===\n", name)
+	fmt.Printf("Name: %s\n", svc.Name)
+	fmt.Printf("Running status: %s\n", svc.Status)
+	fmt.Printf("Port: %d\n", svc.Port)
+	fmt.Printf("PID: %d\n", svc.Pid)
+	fmt.Printf("Start time: %s\n", svc.StartTime)
+	fmt.Printf("Startup command: %s\n", detail.Process.Command)
+	fmt.Printf("Startup args: %+v\n", detail.Process.Args)
 
-		// Display endpoint URL
-		if svc.Spec.Protocol != "" && svc.Port > 0 {
-			endpointURL := fmt.Sprintf("%s://localhost:%d", svc.Spec.Protocol, svc.Port)
-			fmt.Printf("Access URL: %s\n", endpointURL)
-		}
-		return nil
+	fmt.Printf("Startup mode: %s\n", svc.Spec.Startup)
+	fmt.Printf("Protocol: %s\n", svc.Spec.Protocol)
+	if svc.Spec.Metrics != "" {
+		fmt.Printf("Metrics endpoint: %s\n", svc.Spec.Metrics)
+	}
+	if svc.Spec.Accessible != "" {
+		fmt.Printf("Access permission: %s\n", svc.Spec.Accessible)
+	}
+	// Display version information
+	if component != nil {
+		fmt.Printf("Local version: %s\n", component.LocalVersion)
+		fmt.Printf("Latest server version: %s\n", component.RemoteVersion)
+	} else {
+		fmt.Printf("Local version: Not installed\n")
+		fmt.Printf("Latest server version: Unable to retrieve\n")
 	}
 
-	return fmt.Errorf("Service named '%s' not found", name)
+	// Display endpoint URL
+	if svc.Spec.Protocol != "" && svc.Port > 0 {
+		endpointURL := fmt.Sprintf("%s://localhost:%d", svc.Spec.Protocol, svc.Port)
+		fmt.Printf("Access URL: %s\n", endpointURL)
+	}
+
+	return nil
 }
 
 func init() {

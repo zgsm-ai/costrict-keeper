@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
 )
@@ -338,11 +339,10 @@ func (s *Server) Check() models.CheckResponse {
 
 	// 检查服务
 	s.service.CheckServices()
-
-	var serviceResults []models.CheckResult
-	for _, svc := range s.service.GetInstances() {
+	var serviceResults []models.ServiceCheckResult
+	for _, svc := range s.service.GetInstances(false) {
 		healthy := svc.IsHealthy()
-		serviceResults = append(serviceResults, models.CheckResult{
+		serviceResults = append(serviceResults, models.ServiceCheckResult{
 			Name:      svc.Name,
 			Status:    svc.Status,
 			Pid:       svc.Pid,
@@ -354,12 +354,10 @@ func (s *Server) Check() models.CheckResponse {
 	response.Services = serviceResults
 
 	// 检查进程
-	processManager := GetProcessManager()
-	processManager.CheckProcesses()
-
+	s.processor.CheckProcesses()
 	// 获取所有进程实例并转换为检查结果
 	var processResults []models.ProcessCheckResult
-	for _, proc := range processManager.GetInstances() {
+	for _, proc := range s.processor.GetInstances() {
 		processResults = append(processResults, models.ProcessCheckResult{
 			InstanceName:   proc.InstanceName,
 			ProcessName:    proc.ProcessName,
@@ -375,11 +373,9 @@ func (s *Server) Check() models.CheckResponse {
 	response.Processes = processResults
 
 	// 检查隧道
-	tunnelManager := GetTunnelManager()
-	tunnelManager.CheckTunnels()
-
+	s.tunnel.CheckTunnels()
 	var tunnelResults []models.TunnelCheckResult
-	for _, tun := range tunnelManager.ListTunnels() {
+	for _, tun := range s.tunnel.ListTunnels() {
 		tunnelResults = append(tunnelResults, models.TunnelCheckResult{
 			Name:        tun.Name,
 			LocalPort:   tun.LocalPort,
@@ -392,11 +388,9 @@ func (s *Server) Check() models.CheckResponse {
 	response.Tunnels = tunnelResults
 
 	// 检查组件
-	componentManager := s.Components()
-	upgradesNeeded := componentManager.CheckComponents()
-
+	upgradesNeeded := s.component.CheckComponents()
 	var components []models.ComponentCheckResult
-	for _, comp := range componentManager.GetComponents() {
+	for _, comp := range s.component.GetComponents(true) {
 		components = append(components, models.ComponentCheckResult{
 			Name:          comp.Spec.Name,
 			LocalVersion:  comp.LocalVersion,
@@ -510,24 +504,22 @@ func (s *Server) GetHealthz() models.HealthResponse {
 
 	// 获取服务统计信息
 	activeServices := 0
-	for _, svc := range s.service.GetInstances() {
+	for _, svc := range s.service.GetInstances(false) {
 		if svc.Status == "running" {
 			activeServices++
 		}
 	}
 
 	// 获取隧道统计信息
-	tunnelManager := GetTunnelManager()
 	activeTunnels := 0
-	for _, tun := range tunnelManager.ListTunnels() {
+	for _, tun := range s.tunnel.ListTunnels() {
 		if tun.Status == "running" {
 			activeTunnels++
 		}
 	}
 
 	// 获取组件统计信息
-	componentManager := s.Components()
-	components := componentManager.GetComponents()
+	components := s.component.GetComponents(true)
 	totalComponents := len(components)
 	upgradedComponents := 0
 	for _, comp := range components {
@@ -538,13 +530,13 @@ func (s *Server) GetHealthz() models.HealthResponse {
 
 	// 构建响应
 	response := models.HealthResponse{
-		Version:   "1.0.0",
+		Version:   env.Version,
 		StartTime: s.startTime.Format(time.RFC3339),
 		Status:    "UP",
 		Uptime:    uptime.String(),
 		Metrics: models.Metrics{
-			TotalRequests:      0, // 暂时设为0，后续可以通过Prometheus API获取实际值
-			ErrorRequests:      0, // 暂时设为0，后续可以通过Prometheus API获取实际值
+			TotalRequests:      GetTotalRequestCount(),
+			ErrorRequests:      GetTotalErrorCount(),
 			ActiveServices:     activeServices,
 			ActiveTunnels:      activeTunnels,
 			TotalComponents:    totalComponents,

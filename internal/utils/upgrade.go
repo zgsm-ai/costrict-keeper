@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -750,4 +751,174 @@ func RemovePackage(baseDir string, packageName string) error {
 
 	log.Printf("Package '%s' removed successfully\n", packageName)
 	return nil
+}
+
+/**
+ * 清理package目录下过老的版本包数据
+ * @param {string} baseDir - costrict数据所在的基路径，如果为空则使用默认路径
+ * @returns {error} 返回错误对象，成功时返回nil
+ * @description
+ * - 扫描版本描述文件package/x-{ver}.json文件，提取文件中保存的版本信息
+ * - 保证每个模块只保留最新的三个包，过老的包需要清除
+ * - 删除过老的包描述文件x-{ver}.json和package/{ver}/{targetFile}
+ * - 支持自定义baseDir，如果为空则使用默认的.costrict目录
+ * - 按包名分组处理，每个包保留最新的三个版本
+ * @throws
+ * - 读取package目录失败
+ * - 解析版本描述文件失败
+ * - 删除包文件或描述文件失败
+ * @example
+ * err := CleanupOldVersions("/home/xxx/.costrict")
+ * if err != nil {
+ *     log.Fatal(err)
+ * }
+ */
+func CleanupOldVersions(baseDir string) error {
+	// 如果baseDir为空，使用默认路径
+	if baseDir == "" {
+		baseDir = getCostrictDir()
+	}
+	packageDir := filepath.Join(baseDir, "package")
+
+	// 检查package目录是否存在
+	if _, err := os.Stat(packageDir); os.IsNotExist(err) {
+		return fmt.Errorf("CleanupOldVersions: package directory '%s' does not exist", packageDir)
+	}
+
+	// 读取package目录下的所有文件
+	files, err := os.ReadDir(packageDir)
+	if err != nil {
+		return fmt.Errorf("CleanupOldVersions: read package directory failed: %v", err)
+	}
+
+	// 按包名分组的版本信息
+	packageVersions := make(map[string][]PackageVersionInfo)
+
+	// 遍历文件，找出所有版本描述文件（格式：x-{ver}.json）
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		filename := file.Name()
+		// 匹配格式：{packageName}-{version}.json
+		if !strings.HasSuffix(filename, ".json") {
+			continue
+		}
+		// 关注中间带‘-’的版本描述文件
+		parts := strings.Split(filename, "-")
+		if len(parts) < 2 {
+			continue
+		}
+		// 读取包描述文件
+		filePath := filepath.Join(packageDir, filename)
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("CleanupOldVersions: read package file '%s' failed: %v\n", filePath, err)
+			continue
+		}
+
+		// 解析包描述信息
+		var pkg PackageVersion
+		if err := json.Unmarshal(data, &pkg); err != nil {
+			log.Printf("CleanupOldVersions: unmarshal package info from '%s' failed: %v\n", filePath, err)
+			continue
+		}
+		version := pkg.VersionId
+		versionStr := PrintVersion(pkg.VersionId)
+		// 保存版本信息
+		versionInfo := PackageVersionInfo{
+			PackageName: pkg.PackageName,
+			Version:     version,
+			FilePath:    filePath,
+			PackageDir:  filepath.Join(packageDir, versionStr),
+			PackageFile: filepath.Join(packageDir, versionStr, pkg.FileName),
+		}
+
+		packageVersions[pkg.PackageName] = append(packageVersions[pkg.PackageName], versionInfo)
+	}
+
+	// 对每个包的版本进行排序，并删除过老的版本
+	for _, versions := range packageVersions {
+		// 按版本号从新到旧排序
+		sort.Slice(versions, func(i, j int) bool {
+			return CompareVersion(versions[i].Version, versions[j].Version) > 0
+		})
+
+		// 如果版本数量超过3个，删除过老的版本
+		for i := 3; i < len(versions); i++ {
+			old := versions[i]
+
+			// 删除包描述文件
+			if err := os.Remove(old.FilePath); err != nil {
+				log.Printf("CleanupOldVersions: remove package description file '%s' failed: %v\n", old.FilePath, err)
+			} else {
+				log.Printf("CleanupOldVersions: removed old package description file '%s'\n", old.FilePath)
+			}
+
+			// 删除包文件（参考GetPackage逻辑，只删除具体的包文件）
+			if err := os.Remove(old.PackageFile); err != nil {
+				log.Printf("CleanupOldVersions: remove package file '%s' failed: %v\n", old.PackageFile, err)
+			} else {
+				log.Printf("CleanupOldVersions: removed old package file '%s'\n", old.PackageFile)
+			}
+
+			// 检查目录是否为空，如果为空则删除目录
+			if isDirEmpty(old.PackageDir) {
+				if err := os.Remove(old.PackageDir); err != nil {
+					log.Printf("CleanupOldVersions: remove empty package directory '%s' failed: %v\n", old.PackageDir, err)
+				} else {
+					log.Printf("CleanupOldVersions: removed empty package directory '%s'\n", old.PackageDir)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+/**
+ * 检查目录是否为空
+ * @param {string} dirPath - 目录路径
+ * @returns {bool} 目录为空返回true，否则返回false
+ * @description
+ * - 检查指定目录是否为空（不包含任何文件或子目录）
+ * - 如果目录不存在，返回true
+ * - 如果目录存在但为空，返回true
+ * - 如果目录存在且包含文件或子目录，返回false
+ * @throws
+ * - 读取目录失败时返回false
+ * @example
+ * if isDirEmpty("/path/to/dir") {
+ *     os.Remove("/path/to/dir")
+ * }
+ */
+func isDirEmpty(dirPath string) bool {
+	// 如果目录不存在，视为空
+	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+		return true
+	}
+
+	// 打开目录
+	file, err := os.Open(dirPath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	// 读取目录内容
+	_, err = file.Readdirnames(1)
+	if err == io.EOF {
+		return true // 目录为空
+	}
+	return false // 目录不为空或读取失败
+}
+
+// PackageVersionInfo 包版本信息，用于清理过老版本
+type PackageVersionInfo struct {
+	PackageName string        // 包名
+	Version     VersionNumber // 版本号
+	FilePath    string        // 包描述文件路径
+	PackageDir  string        // 包目录路径
+	PackageFile string        // 包文件路径
 }

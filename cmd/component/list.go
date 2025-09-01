@@ -2,8 +2,6 @@ package component
 
 import (
 	"context"
-	"costrict-keeper/internal/config"
-	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/utils"
 	"costrict-keeper/services"
 	"fmt"
@@ -39,17 +37,17 @@ var listCmd = &cobra.Command{
  * - Version checking errors
  */
 func listInfo(ctx context.Context, args []string) error {
-	// Load system configuration
-	if err := config.LoadSpec(); err != nil {
-		return fmt.Errorf("Failed to load system configuration: %v", err)
-	}
+	// // Load system configuration
+	// if err := config.LoadSpec(); err != nil {
+	// 	return fmt.Errorf("Failed to load system configuration: %v", err)
+	// }
 
 	if len(args) == 0 {
 		// List all components information
-		return listAllComponents(config.Spec())
+		return listAllComponents()
 	} else {
 		// List detailed information of specified component
-		return listSpecificComponent(config.Spec(), args[0])
+		return listSpecificComponent(args[0])
 	}
 }
 
@@ -72,16 +70,15 @@ type Component_Columns struct {
  * - Lists components with local and remote versions
  * - Uses tabwriter for formatted output
  */
-func listAllComponents(spec *models.SystemSpecification) error {
-	if len(spec.Components) == 0 {
+func listAllComponents() error {
+	manager := services.GetComponentManager()
+	components := manager.GetComponents(true)
+	if len(components) == 0 {
 		fmt.Println("No components found")
 		return nil
 	}
-
-	manager := services.GetComponentManager()
-	// Format output package list
 	var dataList []*orderedmap.OrderedMap
-	for _, comp := range manager.GetComponents() {
+	for _, comp := range components {
 		row := Component_Columns{}
 		row.Name = comp.Spec.Name
 		row.Path = "-"
@@ -110,40 +107,43 @@ func listAllComponents(spec *models.SystemSpecification) error {
  * @throws
  * - Component not found errors
  */
-func listSpecificComponent(spec *models.SystemSpecification, name string) error {
+func listSpecificComponent(name string) error {
 	manager := services.GetComponentManager()
-	for _, comp := range spec.Components {
-		if comp.Name != name {
-			continue
+	component := manager.GetSelf()
+	if name != services.COSTRICT_NAME {
+		component = manager.GetComponent(name)
+		if component == nil {
+			return fmt.Errorf("Component named '%s' not found", name)
 		}
-		fmt.Printf("=== Detailed information of component '%s' ===\n", name)
-		fmt.Printf("Name: %s\n", comp.Name)
-		fmt.Printf("Required version: %s\n", comp.Version)
-		component := manager.GetComponent(comp.Name)
+	}
+	spec := &component.Spec
+	fmt.Printf("=== Detailed information of component '%s' ===\n", name)
+	fmt.Printf("Name: %s\n", name)
+	fmt.Printf("Need upgrade: %v\n", component.NeedUpgrade)
 
-		// Display version information
-		if component != nil {
-			fmt.Printf("Local version: %s\n", component.LocalVersion)
-			fmt.Printf("Latest server version: %s\n", component.RemoteVersion)
-		} else {
-			fmt.Printf("Local version: Not installed\n")
-			fmt.Printf("Latest server version: Unable to retrieve\n")
-		}
-
-		// Display upgrade configuration
-		if comp.Upgrade != nil {
-			fmt.Printf("Upgrade mode: %s\n", comp.Upgrade.Mode)
-			if comp.Upgrade.Lowest != "" {
-				fmt.Printf("Minimum supported version: %s\n", comp.Upgrade.Lowest)
-			}
-			if comp.Upgrade.Highest != "" {
-				fmt.Printf("Maximum supported version: %s\n", comp.Upgrade.Highest)
-			}
-		}
-		return nil
+	// Display version information
+	if component.LocalVersion != "" {
+		fmt.Printf("Local version: %s\n", component.LocalVersion)
+	} else {
+		fmt.Printf("Local version: Not installed\n")
+	}
+	if component.RemoteVersion != "" {
+		fmt.Printf("Latest server version: %s\n", component.RemoteVersion)
+	} else {
+		fmt.Printf("Latest server version: Unable to retrieve\n")
 	}
 
-	return fmt.Errorf("Component named '%s' not found", name)
+	// Display upgrade configuration
+	if spec.Upgrade != nil {
+		fmt.Printf("Upgrade mode: %s\n", spec.Upgrade.Mode)
+		if spec.Upgrade.Lowest != "" {
+			fmt.Printf("Minimum supported version: %s\n", spec.Upgrade.Lowest)
+		}
+		if spec.Upgrade.Highest != "" {
+			fmt.Printf("Maximum supported version: %s\n", spec.Upgrade.Highest)
+		}
+	}
+	return nil
 }
 
 func init() {

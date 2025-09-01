@@ -21,7 +21,7 @@ import (
  * @property {[]string} args - 命令参数
  * @property {string} workDir - 工作目录
  * @property {int} pid - 进程ID
- * @property {string} status - 进程状态: running/stopped/error
+ * @property {string} status - 进程状态: running/exited/stopped/error
  * @property {int} restartCount - 重启次数
  * @property {time.Time} startTime - 启动时间
  * @property {time.Time} lastExitTime - 最后退出时间
@@ -41,15 +41,14 @@ type ProcessInstance struct {
 	MaxRestartCount int                    `json:"maxRestartCount"`
 	RestartDelay    time.Duration          `json:"restartDelay"`
 	RestartCallback func(*ProcessInstance) `json:"-"` // 进程重启回调函数
-
-	Pid            int                `json:"pid"`
-	Status         string             `json:"status"`
-	RestartCount   int                `json:"restartCount"`
-	StartTime      time.Time          `json:"startTime"`
-	LastExitTime   time.Time          `json:"lastExitTime"`
-	LastExitReason string             `json:"lastExitReason"`
-	cancelFunc     context.CancelFunc `json:"-"`
-	process        *os.Process        `json:"-"` // 统一的进程对象，用于Wait()
+	Pid             int                    `json:"pid"`
+	Status          string                 `json:"status"`
+	RestartCount    int                    `json:"restartCount"`
+	StartTime       time.Time              `json:"startTime"`
+	LastExitTime    time.Time              `json:"lastExitTime"`
+	LastExitReason  string                 `json:"lastExitReason"`
+	cancelFunc      context.CancelFunc     `json:"-"`
+	process         *os.Process            `json:"-"` // 统一的进程对象，用于Wait()
 }
 
 /**
@@ -247,7 +246,7 @@ func (pm *ProcessManager) GetInstances() []*ProcessInstance {
 	return procs
 }
 
-func (pm *ProcessManager) MaintainProcesses() {
+func (pm *ProcessManager) MonitorProcesses() {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 

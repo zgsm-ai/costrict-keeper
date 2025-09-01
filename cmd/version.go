@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"costrict-keeper/cmd/root"
+	"costrict-keeper/internal/env"
 
 	"github.com/spf13/cobra"
 )
@@ -34,4 +35,5 @@ func init() {
 	root.RootCmd.AddCommand(versionCmd)
 
 	versionCmd.Example = `  costrict version`
+	env.Version = SoftwareVer
 }

@@ -60,7 +60,7 @@ func (s *ServiceController) RegisterRoutes(r *gin.Engine) {
 //	@Failure		500	{object}	models.ErrorResponse		"Internal server error response"
 //	@Router			/costrict/api/v1/services [get]
 func (s *ServiceController) ListServices(c *gin.Context) {
-	c.JSON(200, s.service.GetInstances())
+	c.JSON(200, s.service.GetInstances(false))
 }
 
 // RestartService restarts a specific service by name
@@ -151,7 +151,7 @@ func (s *ServiceController) GetService(c *gin.Context) {
 
 	svc := s.service.GetInstance(name)
 	if svc != nil {
-		c.JSON(200, services.GetServiceDetail(svc))
+		c.JSON(200, svc.GetDetail())
 		return
 	}
 

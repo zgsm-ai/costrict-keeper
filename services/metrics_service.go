@@ -23,6 +23,14 @@ var (
 		[]string{"service"},
 	)
 
+	errorCount = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "service_error_total",
+			Help: "Total service error requests",
+		},
+		[]string{"service"},
+	)
+
 	requestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "service_request_duration_seconds",
@@ -55,10 +63,15 @@ var (
 		},
 		[]string{"service"},
 	)
+
+	// 本地计数器，用于快速获取总请求数
+	totalRequests int64 = 0
+	totalErrors   int64 = 0
 )
 
 func init() {
 	prometheus.MustRegister(requestCount)
+	prometheus.MustRegister(errorCount)
 	prometheus.MustRegister(requestDuration)
 	prometheus.MustRegister(serviceHealthStatus)
 	prometheus.MustRegister(componentVersionInfo)
@@ -83,7 +96,7 @@ func collectMetricsFromComponents() error {
 	sm := GetServiceManager()
 
 	// Collect metrics for each service
-	services := sm.GetInstances()
+	services := sm.GetInstances(true)
 	for _, svc := range services {
 		// Set component health status (1: healthy, 0: unhealthy)
 		healthStatus := 0.0
@@ -252,6 +265,7 @@ func CollectAndPushMetrics(pushGatewayAddr string) error {
  */
 func IncrementRequestCount(serviceName string) {
 	requestCount.WithLabelValues(serviceName).Inc()
+	IncrementTotalRequestCount()
 }
 
 /**
@@ -276,4 +290,48 @@ func RecordRequestDuration(serviceName string, duration float64) {
  */
 func UpdateServiceUptime(serviceName string, uptime float64) {
 	serviceUpTime.WithLabelValues(serviceName).Set(uptime)
+}
+
+/**
+ * Increment error counter for a specific service
+ * @param {string} serviceName - Name of the service
+ * @description
+ * - Increments the error counter for the specified service
+ * - Used by API handlers to track error request counts
+ */
+func IncrementErrorCount(serviceName string) {
+	errorCount.WithLabelValues(serviceName).Inc()
+	totalErrors++
+}
+
+/**
+ * Get total request count
+ * @returns {int64} Returns total request count
+ * @description
+ * - Returns the total number of requests received
+ * - Used by health check endpoint
+ */
+func GetTotalRequestCount() int64 {
+	return totalRequests
+}
+
+/**
+ * Get total error count
+ * @returns {int64} Returns total error count
+ * @description
+ * - Returns the total number of error requests received
+ * - Used by health check endpoint
+ */
+func GetTotalErrorCount() int64 {
+	return totalErrors
+}
+
+/**
+ * Increment total request count
+ * @description
+ * - Increments the total request counter
+ * - Used by middleware to track overall request count
+ */
+func IncrementTotalRequestCount() {
+	totalRequests++
 }

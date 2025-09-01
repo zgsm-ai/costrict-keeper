@@ -216,9 +216,11 @@ func (cm *ComponentManager) RemoveComponent(name string) error {
  * @throws
  * - Component conversion errors
  */
-func (cm *ComponentManager) GetComponents() []*ComponentInstance {
+func (cm *ComponentManager) GetComponents(includeSelf bool) []*ComponentInstance {
 	components := make([]*ComponentInstance, 0)
-	components = append(components, &cm.self)
+	if includeSelf {
+		components = append(components, &cm.self)
+	}
 	for _, cpn := range cm.components {
 		components = append(components, cpn)
 	}
@@ -285,6 +287,7 @@ func (cm *ComponentManager) UpgradeAll() error {
 			cm.upgradeComponent(cpn)
 		}
 	}
+	utils.CleanupOldVersions("")
 	return nil
 }
 

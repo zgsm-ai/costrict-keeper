@@ -47,7 +47,9 @@ type ServiceDetail struct {
 	Status    string                      `json:"status"`
 	StartTime string                      `json:"startTime"`
 	Spec      models.ServiceSpecification `json:"spec"`
-	Tunnel    TunnelInstance              `json:"tunnel"`
+	Tunnel    *TunnelInstance             `json:"tunnel,omitempty"`
+	Process   *ProcessInstance            `json:"process,omitempty"`
+	Component *ComponentInstance          `json:"component,omitempty"`
 }
 
 type ServiceArgs struct {
@@ -137,31 +139,6 @@ func UpdateCostrictStatus(status string) {
 }
 
 /**
- * Get detailed service information
- * @param {ServiceInstance} svc - Service instance to get details for
- * @returns {ServiceDetail} Returns detailed service information
- * @description
- * - Creates ServiceDetail structure from ServiceInstance
- * - Includes service name, PID, port, status, and start time
- * - Includes service specification and tunnel information
- * - Used for API responses and detailed service views
- * @example
- * detail := GetServiceDetail(serviceInstance)
- * fmt.Printf("Service %s is %s", detail.Name, detail.Status)
- */
-func GetServiceDetail(svc *ServiceInstance) ServiceDetail {
-	return ServiceDetail{
-		Name:      svc.Name,
-		Pid:       svc.Pid,
-		Port:      svc.Port,
-		Status:    svc.Status,
-		StartTime: svc.StartTime,
-		Spec:      svc.Spec,
-		Tunnel:    *svc.tun,
-	}
-}
-
-/**
  * Get self service knowledge information
  * @returns {ServiceKnowledge} Returns self service knowledge structure
  * @description
@@ -174,6 +151,19 @@ func GetServiceDetail(svc *ServiceInstance) ServiceDetail {
 func getSelfKnowledge() models.ServiceKnowledge {
 	spec := config.Spec().Manager.Service
 	component := GetComponentManager().GetSelf()
+	name := COSTRICT_NAME
+	if runtime.GOOS == "windows" {
+		name = fmt.Sprintf("%s.exe", name)
+	}
+	args := ServiceArgs{
+		LocalPort:   env.ListenPort,
+		ProcessName: name,
+		ProcessPath: filepath.Join(env.CostrictDir, "bin", name),
+	}
+	command, _, err := utils.GetCommandLine(spec.Command, spec.Args, args)
+	if err != nil {
+		command = name
+	}
 	return models.ServiceKnowledge{
 		Name:       COSTRICT_NAME,
 		Version:    component.LocalVersion,
@@ -182,11 +172,42 @@ func getSelfKnowledge() models.ServiceKnowledge {
 		Port:       env.ListenPort,
 		Startup:    spec.Startup,
 		Protocol:   spec.Protocol,
-		Command:    spec.Command,
+		Command:    command,
 		Metrics:    spec.Metrics,
 		Healthy:    spec.Healthy,
 		Accessible: spec.Accessible,
 	}
+}
+
+/**
+ * Get detailed service information
+ * @param {ServiceInstance} svc - Service instance to get details for
+ * @returns {ServiceDetail} Returns detailed service information
+ * @description
+ * - Creates ServiceDetail structure from ServiceInstance
+ * - Includes service name, PID, port, status, and start time
+ * - Includes service specification and tunnel information
+ * - Used for API responses and detailed service views
+ * @example
+ * detail := serviceInstance.GetDetail()
+ * fmt.Printf("Service %s is %s", detail.Name, detail.Status)
+ */
+func (svc *ServiceInstance) GetDetail() ServiceDetail {
+	detail := &ServiceDetail{
+		Name:      svc.Name,
+		Pid:       svc.Pid,
+		Port:      svc.Port,
+		Status:    svc.Status,
+		StartTime: svc.StartTime,
+		Spec:      svc.Spec,
+		Tunnel:    svc.tun,
+		Process:   svc.proc,
+		Component: svc.component,
+	}
+	if svc.proc == nil {
+		detail.Process, _ = svc.CreateProcessInstance()
+	}
+	return *detail
 }
 
 /**
@@ -247,16 +268,24 @@ func (svc *ServiceInstance) getKnowledge() models.ServiceKnowledge {
 		version = component.LocalVersion
 		installed = component.Installed
 	}
+	command := spec.Name
+	if svc.proc != nil {
+		command = svc.proc.Command
+	} else {
+		if runtime.GOOS == "windows" {
+			command = fmt.Sprintf("%s.exe", spec.Name)
+		}
+	}
 
 	return models.ServiceKnowledge{
-		Name:       spec.Name,
+		Name:       svc.Name,
 		Version:    version,
 		Installed:  installed,
-		Startup:    spec.Startup,
+		Command:    command,
 		Status:     svc.Status,
-		Protocol:   spec.Protocol,
 		Port:       svc.Port,
-		Command:    spec.Command,
+		Startup:    spec.Startup,
+		Protocol:   spec.Protocol,
 		Metrics:    spec.Metrics,
 		Healthy:    spec.Healthy,
 		Accessible: spec.Accessible,
@@ -460,26 +489,6 @@ func (sm *ServiceManager) GetSelf() *ServiceInstance {
 }
 
 /**
- * Get all service instances including self
- * @returns {[]ServiceInstance} Returns slice of all service instances
- * @description
- * - Returns slice containing self service instance and all managed services
- * - Used for getting complete view of all services
- * - Includes manager service and all configured services
- * @example
- * serviceManager := GetServiceManager()
- * allServices := serviceManager.GetAll()
- * for _, svc := range allServices {
- *     fmt.Printf("Service: %s, Status: %s", svc.Name, svc.Status)
- * }
- */
-func (sm *ServiceManager) GetAll() []*ServiceInstance {
-	var svcs []*ServiceInstance
-	svcs = append(svcs, &sm.self)
-	return append(svcs, sm.GetInstances()...)
-}
-
-/**
  * Get all managed service instances (excluding self)
  * @returns {[]ServiceInstance} Returns slice of managed service instances
  * @description
@@ -488,13 +497,16 @@ func (sm *ServiceManager) GetAll() []*ServiceInstance {
  * - Used for managing and monitoring configured services
  * @example
  * serviceManager := GetServiceManager()
- * services := serviceManager.GetInstances()
+ * services := serviceManager.GetInstances(true)
  * for _, svc := range services {
  *     fmt.Printf("Service: %s, Status: %s", svc.Name, svc.Status)
  * }
  */
-func (sm *ServiceManager) GetInstances() []*ServiceInstance {
+func (sm *ServiceManager) GetInstances(includeSelf bool) []*ServiceInstance {
 	var svcs []*ServiceInstance
+	if includeSelf {
+		svcs = append(svcs, &sm.self)
+	}
 	for _, svc := range sm.services {
 		svcs = append(svcs, svc)
 	}
@@ -685,7 +697,15 @@ func (sm *ServiceManager) StopService(name string) error {
  *     logger.Error("Service health check failed")
  * }
  */
-func (sm *ServiceManager) CheckServices() error {
+func (sm *ServiceManager) CheckServices() {
+	for _, svc := range sm.services {
+		if svc.Status == "running" && svc.Port > 0 && !utils.CheckPortConnectable(svc.Port) {
+			logger.Errorf("Service [%s] is unhealthy", svc.Spec.Name)
+		}
+	}
+}
+
+func (sm *ServiceManager) MonitorServices() error {
 	for _, svc := range sm.services {
 		if svc.Status == "running" && svc.Port > 0 && !utils.CheckPortConnectable(svc.Port) {
 			logger.Errorf("Service [%s] is unhealthy", svc.Spec.Name)

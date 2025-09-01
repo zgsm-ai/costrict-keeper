@@ -938,3 +938,30 @@ func (tm *TunnelManager) CheckTunnels() error {
 
 	return nil
 }
+
+func (tm *TunnelManager) MonitorTunnels() error {
+	// 遍历所有本地隧道
+	for _, tunnel := range tm.tunnels {
+		needsRestart, err := tunnel.checkTunnel()
+		if err != nil {
+			// 如果检查失败，记录错误但继续检查下一个隧道
+			logger.Errorf("Failed to check tunnel [%s:%d]: %v", tunnel.Name, tunnel.LocalPort, err)
+			continue
+		}
+
+		// 如果需要重启，则重启隧道
+		if needsRestart {
+			logger.Warnf("Restarting tunnel [%s:%d] due to port mapping change", tunnel.Name, tunnel.LocalPort)
+
+			// 重启隧道
+			if err := tunnel.restartTunnel(); err != nil {
+				logger.Errorf("Failed to restart tunnel [%s:%d]: %v", tunnel.Name, tunnel.LocalPort, err)
+				return fmt.Errorf("failed to restart tunnel [%s:%d]: %w", tunnel.Name, tunnel.LocalPort, err)
+			}
+
+			logger.Infof("Successfully restarted tunnel [%s:%d]", tunnel.Name, tunnel.LocalPort)
+		}
+	}
+
+	return nil
+}

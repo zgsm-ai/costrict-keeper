@@ -4,9 +4,9 @@ import (
 	"time"
 )
 
-// CheckResult 服务检查结果
+// ServiceCheckResult 服务检查结果
 // @Description 服务健康状态检查结果
-type CheckResult struct {
+type ServiceCheckResult struct {
 	Name      string `json:"name" example:"costrict" description:"服务名称"`
 	Status    string `json:"status" example:"running" description:"服务状态"`
 	Pid       int    `json:"pid" example:"1234" description:"进程ID"`
@@ -64,7 +64,7 @@ type MidnightRoosterCheckResult struct {
 // @Description 系统检查API响应数据结构
 type CheckResponse struct {
 	Timestamp       time.Time                  `json:"timestamp" example:"2024-01-01T10:00:00Z" description:"检查时间戳"`
-	Services        []CheckResult              `json:"services" description:"服务检查结果列表"`
+	Services        []ServiceCheckResult       `json:"services" description:"服务检查结果列表"`
 	Processes       []ProcessCheckResult       `json:"processes" description:"进程检查结果列表"`
 	Tunnels         []TunnelCheckResult        `json:"tunnels" description:"隧道检查结果列表"`
 	Components      []ComponentCheckResult     `json:"components" description:"组件检查结果列表"`

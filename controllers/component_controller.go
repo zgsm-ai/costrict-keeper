@@ -54,7 +54,7 @@ func (c *ComponentController) RegisterRoutes(r *gin.Engine) {
 // @Success 200 {array} services.ComponentInstance
 // @Router /costrict/api/v1/components [get]
 func (c *ComponentController) ListComponents(g *gin.Context) {
-	components := c.component.GetComponents()
+	components := c.component.GetComponents(true)
 	g.JSON(200, components)
 }
 

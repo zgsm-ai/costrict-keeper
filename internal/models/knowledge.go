@@ -9,7 +9,7 @@ const (
 	StatusRunning RunStatus = "running"
 	// 表示被用户手动停止
 	StatusStopped RunStatus = "stopped"
-	// 表示出错停止
+	// 表示出错停止，无法自动恢复
 	StatusError RunStatus = "error"
 )
 

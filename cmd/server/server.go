@@ -8,6 +8,7 @@ import (
 	"costrict-keeper/internal/config"
 	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
+	"costrict-keeper/internal/middleware"
 	"costrict-keeper/internal/utils"
 	"costrict-keeper/services"
 	"fmt"
@@ -77,6 +78,10 @@ func startServer(ctx context.Context) error {
 	env.Daemon = true
 	// Initialize services
 	router := gin.Default()
+
+	// 添加指标统计中间件
+	router.Use(middleware.MetricsMiddleware())
+
 	svc := services.NewServer(config.Get())
 	apiController := controllers.NewAPIController(svc)
 	apiController.RegisterRoutes(router)
