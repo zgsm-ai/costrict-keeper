@@ -5,6 +5,7 @@ import (
 	"costrict-keeper/internal/utils"
 	"costrict-keeper/services"
 	"fmt"
+	"os"
 
 	"github.com/iancoleman/orderedmap"
 	"github.com/spf13/cobra"
@@ -37,11 +38,6 @@ var listCmd = &cobra.Command{
  * - Version checking errors
  */
 func listInfo(ctx context.Context, args []string) error {
-	// // Load system configuration
-	// if err := config.LoadSpec(); err != nil {
-	// 	return fmt.Errorf("Failed to load system configuration: %v", err)
-	// }
-
 	if len(args) == 0 {
 		// List all components information
 		return listAllComponents()
@@ -113,7 +109,8 @@ func listSpecificComponent(name string) error {
 	if name != services.COSTRICT_NAME {
 		component = manager.GetComponent(name)
 		if component == nil {
-			return fmt.Errorf("Component named '%s' not found", name)
+			fmt.Printf("Component named '%s' not found\n", name)
+			return os.ErrNotExist
 		}
 	}
 	spec := &component.Spec

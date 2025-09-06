@@ -411,6 +411,10 @@ func GetPackage(cfg UpgradeConfig, specVer *VersionNumber) (PackageVersion, bool
 			log.Printf("Specified version %s not found for package '%s'\n", PrintVersion(*specVer), cfg.PackageName)
 			return pkg, false, fmt.Errorf("version %s isn't exist", PrintVersion(*specVer))
 		}
+		ret := CompareVersion(curVer, *specVer)
+		if ret == 0 {
+			return pkg, false, nil
+		}
 	} else { //升级最新版本
 		//	比较当前最新版本，看是否有必要升级
 		ret := CompareVersion(curVer, vers.Newest.VersionId)
@@ -497,7 +501,7 @@ func ActivatePackage(cfg UpgradeConfig, ver VersionNumber) error {
 	//	把下载的包安装到正式目录
 	if err = installPackage(cfg, pkg, dataFname); err != nil {
 		log.Printf("Install package '%s' failed: %v\n", dataFname, err)
-		return fmt.Errorf("installPackage('%s') error: %v", dataFname, err)
+		return err
 	}
 	packageFileName = filepath.Join(cfg.PackageDir, fmt.Sprintf("%s.json", cfg.PackageName))
 	if err := os.WriteFile(packageFileName, data, 0644); err != nil {

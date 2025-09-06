@@ -6,6 +6,7 @@ import (
 	"costrict-keeper/internal/utils"
 	"costrict-keeper/services"
 	"fmt"
+	"os"
 
 	"github.com/iancoleman/orderedmap"
 	"github.com/spf13/cobra"
@@ -39,7 +40,8 @@ var listCmd = &cobra.Command{
 func showServiceStatus(ctx context.Context, args []string) error {
 	// Load system configuration
 	if err := config.LoadSpec(); err != nil {
-		return fmt.Errorf("Failed to load system configuration: %v", err)
+		fmt.Printf("Failed to load system configuration: %v\n", err)
+		return err
 	}
 	manager := services.GetServiceManager()
 	if len(args) == 0 {
@@ -117,7 +119,8 @@ func showSpecificServiceStatus(manager *services.ServiceManager, name string) er
 	if name != services.COSTRICT_NAME {
 		svc = manager.GetInstance(name)
 		if svc == nil {
-			return fmt.Errorf("Service named '%s' not found", name)
+			fmt.Printf("Service named '%s' not found\n", name)
+			return os.ErrNotExist
 		}
 	}
 	detail := svc.GetDetail()

@@ -27,9 +27,7 @@ var upgradeCmd = &cobra.Command{
 			return
 		}
 
-		if err := upgradeComponent(component, optVersion); err != nil {
-			fmt.Println(err)
-		}
+		upgradeComponent(component, optVersion)
 	},
 }
 
@@ -44,14 +42,15 @@ func upgradeComponent(component string, version string) error {
 	if version != "" {
 		v, err := utils.ParseVersion(version)
 		if err != nil {
-			return fmt.Errorf("invalid version number: %s", version)
+			fmt.Printf("Invalid version number: %s\n", version)
+			return err
 		}
 		specVer = &v
 	}
 
 	retVer, upgraded, err := utils.UpgradePackage(cfg, specVer)
 	if err != nil {
-		fmt.Printf("The '%s' upgrade failed: %v", component, err)
+		fmt.Printf("The '%s' upgrade failed: %v\n", component, err)
 		return err
 	}
 	if !upgraded {

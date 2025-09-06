@@ -4,6 +4,7 @@ import (
 	"costrict-keeper/internal/rpc"
 	"costrict-keeper/services"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -48,7 +49,8 @@ func stopService(serviceName string) error {
 		rpcClient.Close()
 		httpResp := resp.(*rpc.HTTPResponse)
 		if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-			return fmt.Errorf("Failed to stop service %s via costrict server: %+v\n", serviceName, httpResp.Body)
+			fmt.Printf("Failed to stop service %s via costrict server: %+v\n", serviceName, httpResp.Body)
+			return os.ErrInvalid
 		}
 		fmt.Printf("Service %s has been stopped via costrict server\n", serviceName)
 		return nil
@@ -60,7 +62,8 @@ func stopService(serviceName string) error {
 	// 如果无法连接到 costrict 服务器或 API 调用失败，走原有逻辑
 	manager := services.GetServiceManager()
 	if err := manager.StopService(serviceName); err != nil {
-		return fmt.Errorf("Failed to stop service: %v", err)
+		fmt.Printf("Failed to stop service: %v\n", err)
+		return err
 	}
 	fmt.Printf("Service %s has been stopped locally\n", serviceName)
 	return nil

@@ -11,8 +11,8 @@ import (
 
 var componentCmd = &cobra.Command{
 	Use:   "component",
-	Short: "Component operations (list, upgrade etc.)",
-	Long:  `Component operations (list, upgrade etc.)`,
+	Short: "Component operations (list/upgrade/remove etc.)",
+	Long:  `Component operations (list/upgrade/remove etc.)`,
 }
 
 const componentExample = `  # list component

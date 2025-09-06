@@ -94,7 +94,8 @@ func startServiceLocally(ctx context.Context, serviceName string) error {
 	}
 	manager := services.GetServiceManager()
 	if err := manager.StartService(ctx, serviceName); err != nil {
-		return fmt.Errorf("failed to start service: %v", err)
+		fmt.Printf("Failed to start service: %v\n", err)
+		return err
 	}
 	fmt.Printf("Service %s has been started locally\n", serviceName)
 	return nil
@@ -127,7 +128,8 @@ func startCostrict() error {
 	utils.SetNewPG(cmd)
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start process '%s': %v", proc.InstanceName, err)
+		fmt.Printf("Failed to start process '%s': %v\n", proc.InstanceName, err)
+		return err
 	}
 
 	fmt.Printf("Process '%s' started (PID: %d)\n", proc.InstanceName, cmd.Process.Pid)
