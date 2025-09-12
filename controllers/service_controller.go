@@ -1,7 +1,10 @@
 package controllers
 
 import (
+	"costrict-keeper/internal/models"
 	"costrict-keeper/services"
+	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +49,9 @@ func (s *ServiceController) RegisterRoutes(r *gin.Engine) {
 	api.POST("/services/:name/start", s.StartService)
 	api.POST("/services/:name/stop", s.StopService)
 	api.POST("/services/:name/restart", s.RestartService)
+	api.POST("/services/:name/open", s.OpenTunnel)
+	api.POST("/services/:name/close", s.CloseTunnel)
+	api.POST("/services/:name/reopen", s.ReopenTunnel)
 	api.GET("/services/:name", s.GetService)
 }
 
@@ -132,6 +138,104 @@ func (s *ServiceController) StopService(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": "success"})
+}
+
+// OpenTunnel creates reverse tunnel for application
+//
+//	@Summary		Create reverse tunnel for service
+//	@Description	Create a reverse tunnel for the specified service to enable remote access
+//	@Tags			Services
+//	@Accept			json
+//	@Produce		json
+//	@Param			name	path		string					true	"Service name"
+//	@Success		200		{object}	services.TunnelInstance	"Tunnel information with port mappings and status"
+//	@Failure		404		{object}	models.ErrorResponse	"Service not found error response"
+//	@Failure		500		{object}	models.ErrorResponse	"Internal server error response"
+//	@Router			/costrict/api/v1/services/{name}/open [post]
+func (s *ServiceController) OpenTunnel(c *gin.Context) {
+	name := c.Param("name")
+
+	svc := s.service.GetInstance(name)
+	if svc == nil {
+		c.JSON(404, gin.H{"error": fmt.Sprintf("service [%s] isn't exist", name)})
+		return
+	}
+	if err := svc.OpenTunnel(); err != nil {
+		c.JSON(http.StatusInternalServerError, &models.ErrorResponse{
+			Error: err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, svc.GetTunnel())
+}
+
+// CloseTunnel closes application's reverse tunnel
+//
+//	@Summary		Close reverse tunnel for service
+//	@Description	Close the reverse tunnel for the specified service to disable remote access
+//	@Tags			Services
+//	@Accept			json
+//	@Produce		json
+//	@Param			name	path		string					true	"Service name"
+//	@Success		200		{object}	models.TunnelResponse	"Tunnel close operation success response"
+//	@Failure		404		{object}	models.ErrorResponse	"Service not found error response"
+//	@Failure		500		{object}	models.ErrorResponse	"Internal server error response"
+//	@Router			/costrict/api/v1/services/{name}/close [post]
+func (s *ServiceController) CloseTunnel(c *gin.Context) {
+	name := c.Param("name")
+
+	svc := s.service.GetInstance(name)
+	if svc == nil {
+		c.JSON(404, gin.H{"error": fmt.Sprintf("service [%s] isn't exist", name)})
+		return
+	}
+	if err := svc.CloseTunnel(); err != nil {
+		c.JSON(http.StatusInternalServerError, &models.ErrorResponse{
+			Error: err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, &models.TunnelResponse{
+		AppName: name,
+		Status:  "success",
+		Message: fmt.Sprintf("Successfully closed tunnel for app %s", name),
+	})
+}
+
+// ReopenTunnel restarts application's reverse tunnel
+//
+//	@Summary		Restart reverse tunnel for service
+//	@Description	Restart the reverse tunnel for the specified service to refresh connection and port mapping
+//	@Tags			Services
+//	@Accept			json
+//	@Produce		json
+//	@Param			name	path		string					true	"Service name"
+//	@Success		200		{object}	models.TunnelResponse	"Tunnel restart operation success response"
+//	@Failure		404		{object}	models.ErrorResponse	"Service not found error response"
+//	@Failure		500		{object}	models.ErrorResponse	"Internal server error response"
+//	@Router			/costrict/api/v1/services/{name}/reopen [post]
+func (s *ServiceController) ReopenTunnel(c *gin.Context) {
+	name := c.Param("name")
+
+	svc := s.service.GetInstance(name)
+	if svc == nil {
+		c.JSON(404, gin.H{"error": fmt.Sprintf("service [%s] isn't exist", name)})
+		return
+	}
+	if err := svc.ReopenTunnel(); err != nil {
+		c.JSON(http.StatusInternalServerError, &models.ErrorResponse{
+			Error: err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, &models.TunnelResponse{
+		AppName: name,
+		Status:  "success",
+		Message: fmt.Sprintf("Successfully reopen tunnel for app %s", name),
+	})
 }
 
 // GetService gets detailed information of a specific service by name

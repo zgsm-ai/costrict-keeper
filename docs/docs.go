@@ -24,6 +24,36 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/costrict/api/v1/check": {
+            "post": {
+                "description": "立即执行各项检查，包括服务健康状态、进程状态、隧道状态、组件更新状态和半夜鸡叫自动升级检查机制\n返回详细的检查结果，包括各项服务的运行状态、进程信息、隧道连接状态、组件版本信息以及系统总体健康状态",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "执行系统检查",
+                "responses": {
+                    "200": {
+                        "description": "示例响应：{\\n  \\\"timestamp\\\": \\\"2024-01-01T10:00:00Z\\\",\\n  \\\"services\\\": [{\\n    \\\"name\\\": \\\"costrict\\\",\\n    \\\"status\\\": \\\"running\\\",\\n    \\\"pid\\\": 1234,\\n    \\\"port\\\": 8080,\\n    \\\"startTime\\\": \\\"2024-01-01T09:00:00Z\\\",\\n    \\\"healthy\\\": true\\n  }],\\n  \\\"processes\\\": [],\\n  \\\"tunnels\\\": [{\\n    \\\"name\\\": \\\"myapp\\\",\\n    \\\"localPort\\\": 8080,\\n    \\\"mappingPort\\\": 30001,\\n    \\\"status\\\": \\\"running\\\",\\n    \\\"pid\\\": 1235,\\n    \\\"createdTime\\\": \\\"2024-01-01T09:00:00Z\\\"\\n  }],\\n  \\\"components\\\": [{\\n    \\\"name\\\": \\\"costrict\\\",\\n    \\\"localVersion\\\": \\\"1.0.0\\\",\\n    \\\"remoteVersion\\\": \\\"1.1.0\\\",\\n    \\\"installed\\\": true,\\n    \\\"needUpgrade\\\": true\\n  }],\\n  \\\"midnightRooster\\\": {\\n    \\\"status\\\": \\\"active\\\",\\n    \\\"nextCheckTime\\\": \\\"2024-01-02T03:30:00Z\\\",\\n    \\\"lastCheckTime\\\": \\\"2024-01-01T03:30:00Z\\\",\\n    \\\"componentsCount\\\": 5,\\n    \\\"upgradesNeeded\\\": 2\\n  },\\n  \\\"overallStatus\\\": \\\"warning\\\",\\n  \\\"totalChecks\\\": 4,\\n  \\\"passedChecks\\\": 3,\\n  \\\"failedChecks\\\": 1\\n}",
+                        "schema": {
+                            "$ref": "#/definitions/models.CheckResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "示例错误响应：{\\n  \\\"code\\\": \\\"system.check_failed\\\",\\n  \\\"message\\\": \\\"Failed to perform system check: timeout error\\\"\\n}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/costrict/api/v1/components": {
             "get": {
                 "description": "获取所有已安装组件信息",
@@ -40,7 +70,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/models.ComponentInfo"
+                                "$ref": "#/definitions/services.ComponentInstance"
                             }
                         }
                     }
@@ -144,22 +174,31 @@ const docTemplate = `{
         },
         "/costrict/api/v1/services": {
             "get": {
-                "description": "获取当前管理的所有服务信息",
+                "description": "Get list of all managed services with their current status",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Services"
                 ],
-                "summary": "获取服务列表",
+                "summary": "List all services",
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "List of service instances",
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/models.ServiceSpecification"
+                                "$ref": "#/definitions/services.ServiceInstance"
                             }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -167,15 +206,21 @@ const docTemplate = `{
         },
         "/costrict/api/v1/services/{name}": {
             "get": {
-                "description": "根据服务名获取指定服务的详细信息",
+                "description": "Get detailed information of a specific service by its name",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Services"
                 ],
-                "summary": "获取服务信息",
+                "summary": "Get service information",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "服务名称",
+                        "description": "Service name",
                         "name": "name",
                         "in": "path",
                         "required": true
@@ -183,16 +228,153 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Service detail information",
                         "schema": {
-                            "$ref": "#/definitions/models.ServiceSpecification"
+                            "$ref": "#/definitions/services.ServiceDetail"
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Service not found error response",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/costrict/api/v1/services/{name}/close": {
+            "post": {
+                "description": "Close the reverse tunnel for the specified service to disable remote access",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Services"
+                ],
+                "summary": "Close reverse tunnel for service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tunnel close operation success response",
+                        "schema": {
+                            "$ref": "#/definitions/models.TunnelResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Service not found error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/costrict/api/v1/services/{name}/open": {
+            "post": {
+                "description": "Create a reverse tunnel for the specified service to enable remote access",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Services"
+                ],
+                "summary": "Create reverse tunnel for service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tunnel information with port mappings and status",
+                        "schema": {
+                            "$ref": "#/definitions/services.TunnelInstance"
+                        }
+                    },
+                    "404": {
+                        "description": "Service not found error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/costrict/api/v1/services/{name}/reopen": {
+            "post": {
+                "description": "Restart the reverse tunnel for the specified service to refresh connection and port mapping",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Services"
+                ],
+                "summary": "Restart reverse tunnel for service",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Service name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tunnel restart operation success response",
+                        "schema": {
+                            "$ref": "#/definitions/models.TunnelResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Service not found error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -200,15 +382,21 @@ const docTemplate = `{
         },
         "/costrict/api/v1/services/{name}/restart": {
             "post": {
-                "description": "根据服务名重启指定服务",
+                "description": "Restart a specific service by its name",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Services"
                 ],
-                "summary": "重启服务",
+                "summary": "Restart service",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "服务名称",
+                        "description": "Service name",
                         "name": "name",
                         "in": "path",
                         "required": true
@@ -216,17 +404,22 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Service restart success response",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Service not found error response",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -234,15 +427,21 @@ const docTemplate = `{
         },
         "/costrict/api/v1/services/{name}/start": {
             "post": {
-                "description": "根据服务名启动指定服务",
+                "description": "Start a specific service by its name",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Services"
                 ],
-                "summary": "启动服务",
+                "summary": "Start service",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "服务名称",
+                        "description": "Service name",
                         "name": "name",
                         "in": "path",
                         "required": true
@@ -250,17 +449,22 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Service start success response",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "404": {
-                        "description": "Not Found",
+                        "description": "Service not found error response",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -268,15 +472,21 @@ const docTemplate = `{
         },
         "/costrict/api/v1/services/{name}/stop": {
             "post": {
-                "description": "根据服务名停止指定服务",
+                "description": "Stop a specific service by its name",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Services"
                 ],
-                "summary": "停止服务",
+                "summary": "Stop service",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "服务名称",
+                        "description": "Service name",
                         "name": "name",
                         "in": "path",
                         "required": true
@@ -284,193 +494,42 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
+                        "description": "Service stop success response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Service not found error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error response",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/healthz": {
+            "get": {
+                "description": "检查服务是否已经做好准备，返回服务版本、启动时间、健康状态和关键指标统计结果",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "业务就绪探针",
+                "responses": {
+                    "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/costrict/api/v1/tunnels": {
-            "get": {
-                "description": "Get list of all active tunnels",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Tunnels"
-                ],
-                "summary": "List all tunnels",
-                "responses": {
-                    "200": {
-                        "description": "Tunnel list response",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/models.Tunnel"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error response",
-                        "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "description": "Create reverse tunnel for specified application",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Tunnels"
-                ],
-                "summary": "Create reverse tunnel",
-                "parameters": [
-                    {
-                        "description": "Create tunnel request parameters",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/models.CreateTunnelRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Tunnel  creation",
-                        "schema": {
-                            "$ref": "#/definitions/models.Tunnel"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid parameter error response",
-                        "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Tunnel creation failure error response",
-                        "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/costrict/api/v1/tunnels/{app}/{port}": {
-            "get": {
-                "description": "Get details of specified tunnel",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Tunnels"
-                ],
-                "summary": "Get tunnel info",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Application name",
-                        "name": "app",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Port number",
-                        "name": "port",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Tunnel details response",
-                        "schema": {
-                            "$ref": "#/definitions/models.Tunnel"
-                        }
-                    },
-                    "404": {
-                        "description": "Tunnel not found error response",
-                        "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error response",
-                        "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "description": "Close reverse tunnel for specified application",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Tunnels"
-                ],
-                "summary": "Close reverse tunnel",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Application name",
-                        "name": "app",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Port number",
-                        "name": "port",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Tunnel close success response",
-                        "schema": {
-                            "$ref": "#/definitions/models.TunnelResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid parameter error response",
-                        "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Tunnel close failure error response",
-                        "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "$ref": "#/definitions/models.HealthResponse"
                         }
                     }
                 }
@@ -478,30 +537,87 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "models.ComponentInfo": {
+        "models.CheckResponse": {
+            "description": "系统检查API响应数据结构",
+            "type": "object",
+            "properties": {
+                "components": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ComponentCheckResult"
+                    }
+                },
+                "failedChecks": {
+                    "type": "integer",
+                    "example": 2
+                },
+                "midnightRooster": {
+                    "$ref": "#/definitions/models.MidnightRoosterCheckResult"
+                },
+                "overallStatus": {
+                    "type": "string",
+                    "example": "healthy"
+                },
+                "passedChecks": {
+                    "type": "integer",
+                    "example": 8
+                },
+                "services": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ServiceCheckResult"
+                    }
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2024-01-01T10:00:00Z"
+                },
+                "totalChecks": {
+                    "type": "integer",
+                    "example": 10
+                }
+            }
+        },
+        "models.ComponentCheckResult": {
+            "description": "组件状态检查结果",
             "type": "object",
             "properties": {
                 "installed": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "example": true
+                },
+                "localVersion": {
+                    "type": "string",
+                    "example": "1.0.0"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "costrict"
+                },
+                "needUpgrade": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "remoteVersion": {
+                    "type": "string",
+                    "example": "1.1.0"
+                }
+            }
+        },
+        "models.ComponentSpecification": {
+            "type": "object",
+            "properties": {
+                "install_dir": {
+                    "type": "string"
                 },
                 "name": {
                     "type": "string"
                 },
+                "upgrade": {
+                    "$ref": "#/definitions/models.UpgradeSpecification"
+                },
                 "version": {
                     "type": "string"
-                }
-            }
-        },
-        "models.CreateTunnelRequest": {
-            "type": "object",
-            "properties": {
-                "app": {
-                    "description": "application name(path parameter)",
-                    "type": "string"
-                },
-                "port": {
-                    "description": "port number(query parameter)",
-                    "type": "integer"
                 }
             }
         },
@@ -510,6 +626,163 @@ const docTemplate = `{
             "properties": {
                 "error": {
                     "type": "string"
+                }
+            }
+        },
+        "models.HealthResponse": {
+            "description": "健康检查API响应数据结构",
+            "type": "object",
+            "properties": {
+                "metrics": {
+                    "$ref": "#/definitions/models.Metrics"
+                },
+                "startTime": {
+                    "type": "string",
+                    "example": "2024-01-01T10:00:00Z"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "UP"
+                },
+                "uptime": {
+                    "type": "string",
+                    "example": "1h30m45s"
+                },
+                "version": {
+                    "type": "string",
+                    "example": "1.0.0"
+                }
+            }
+        },
+        "models.Metrics": {
+            "description": "系统关键指标数据结构",
+            "type": "object",
+            "properties": {
+                "activeServices": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "activeTunnels": {
+                    "type": "integer",
+                    "example": 2
+                },
+                "errorRequests": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "totalComponents": {
+                    "type": "integer"
+                },
+                "totalRequests": {
+                    "type": "integer",
+                    "example": 1000
+                },
+                "upgradedComponents": {
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
+        "models.MidnightRoosterCheckResult": {
+            "description": "半夜鸡叫自动升级检查结果",
+            "type": "object",
+            "properties": {
+                "componentsCount": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "lastCheckTime": {
+                    "type": "string",
+                    "example": "2024-01-01T03:30:00Z"
+                },
+                "nextCheckTime": {
+                    "type": "string",
+                    "example": "2024-01-02T03:30:00Z"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "active"
+                },
+                "upgradesNeeded": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "models.PortPair": {
+            "type": "object",
+            "properties": {
+                "localPort": {
+                    "description": "local port",
+                    "type": "integer"
+                },
+                "mappingPort": {
+                    "description": "mapping port to cloud",
+                    "type": "integer"
+                }
+            }
+        },
+        "models.RunStatus": {
+            "type": "string",
+            "enum": [
+                "exited",
+                "running",
+                "stopped",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "StatusExited",
+                "StatusRunning",
+                "StatusStopped",
+                "StatusError"
+            ]
+        },
+        "models.ServiceCheckResult": {
+            "description": "服务健康状态检查结果",
+            "type": "object",
+            "properties": {
+                "healthy": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "lastExitReason": {
+                    "type": "string",
+                    "example": "exited normally"
+                },
+                "lastExitTime": {
+                    "type": "string",
+                    "example": "2024-01-01T09:00:00Z"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "costrict"
+                },
+                "pid": {
+                    "type": "integer",
+                    "example": 1234
+                },
+                "port": {
+                    "type": "integer",
+                    "example": 8080
+                },
+                "processName": {
+                    "type": "string",
+                    "example": "costrict"
+                },
+                "restartCount": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "startTime": {
+                    "type": "string",
+                    "example": "2024-01-01T10:00:00Z"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "running"
+                },
+                "tunnel": {
+                    "$ref": "#/definitions/models.TunnelCheckResult"
                 }
             }
         },
@@ -548,44 +821,24 @@ const docTemplate = `{
                 }
             }
         },
-        "models.Tunnel": {
+        "models.TunnelCheckResult": {
+            "description": "隧道状态检查结果",
             "type": "object",
             "properties": {
                 "createdTime": {
-                    "description": "creation time",
-                    "type": "string"
-                },
-                "localPort": {
-                    "description": "local port",
-                    "type": "integer"
-                },
-                "mappingPort": {
-                    "description": "mapping port to cloud",
-                    "type": "integer"
-                },
-                "name": {
-                    "description": "service name",
                     "type": "string"
                 },
                 "pid": {
-                    "description": "process ID of the tunnel",
                     "type": "integer"
                 },
-                "protocol": {
-                    "description": "protocol type(http/https)",
-                    "type": "string"
+                "ports": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.PortPair"
+                    }
                 },
                 "status": {
-                    "description": "tunnel status(running/stopped/error)",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/models.TunnelStatus"
-                        }
-                    ]
-                },
-                "temporary": {
-                    "description": "delete after the tunnel stops",
-                    "type": "boolean"
+                    "type": "string"
                 }
             }
         },
@@ -606,18 +859,167 @@ const docTemplate = `{
                 }
             }
         },
-        "models.TunnelStatus": {
-            "type": "string",
-            "enum": [
-                "running",
-                "stopped",
-                "error"
-            ],
-            "x-enum-varnames": [
-                "StatusRunning",
-                "StatusStopped",
-                "StatusError"
-            ]
+        "models.UpgradeSpecification": {
+            "type": "object",
+            "properties": {
+                "highest": {
+                    "type": "string"
+                },
+                "lowest": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.ComponentInstance": {
+            "type": "object",
+            "properties": {
+                "installed": {
+                    "type": "boolean"
+                },
+                "local_version": {
+                    "type": "string"
+                },
+                "need_upgrade": {
+                    "type": "boolean"
+                },
+                "remote_version": {
+                    "type": "string"
+                },
+                "spec": {
+                    "$ref": "#/definitions/models.ComponentSpecification"
+                }
+            }
+        },
+        "services.ProcessInstance": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "command": {
+                    "type": "string"
+                },
+                "instanceName": {
+                    "type": "string"
+                },
+                "lastExitReason": {
+                    "type": "string"
+                },
+                "lastExitTime": {
+                    "type": "string"
+                },
+                "maxRestartCount": {
+                    "type": "integer"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "processName": {
+                    "type": "string"
+                },
+                "restartCount": {
+                    "type": "integer"
+                },
+                "startTime": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "workDir": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.ServiceDetail": {
+            "type": "object",
+            "properties": {
+                "component": {
+                    "$ref": "#/definitions/services.ComponentInstance"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "process": {
+                    "$ref": "#/definitions/services.ProcessInstance"
+                },
+                "spec": {
+                    "$ref": "#/definitions/models.ServiceSpecification"
+                },
+                "startTime": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tunnel": {
+                    "$ref": "#/definitions/services.TunnelInstance"
+                }
+            }
+        },
+        "services.ServiceInstance": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "startTime": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.TunnelInstance": {
+            "type": "object",
+            "properties": {
+                "createdTime": {
+                    "description": "creation time",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "service name",
+                    "type": "string"
+                },
+                "pairs": {
+                    "description": "Port pairs",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.PortPair"
+                    }
+                },
+                "pid": {
+                    "description": "process ID of the tunnel",
+                    "type": "integer"
+                },
+                "status": {
+                    "description": "tunnel status(running/stopped/error/exited)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.RunStatus"
+                        }
+                    ]
+                }
+            }
         }
     },
     "securityDefinitions": {

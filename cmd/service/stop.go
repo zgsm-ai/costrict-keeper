@@ -11,7 +11,7 @@ import (
 )
 
 var stopCmd = &cobra.Command{
-	Use:   "stop [service name]",
+	Use:   "stop {service-name}",
 	Short: "Stop service",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {

@@ -60,8 +60,6 @@ type ServiceArgs struct {
 
 type ServiceManager struct {
 	cm       *ComponentManager
-	tm       *TunnelManager
-	pm       *ProcessManager
 	self     ServiceInstance
 	services map[string]*ServiceInstance
 }
@@ -89,8 +87,6 @@ func GetServiceManager() *ServiceManager {
 	sm := &ServiceManager{
 		services: make(map[string]*ServiceInstance),
 		cm:       GetComponentManager(),
-		tm:       GetTunnelManager(),
-		pm:       GetProcessManager(),
 	}
 	for _, svc := range config.Spec().Services {
 		instance := &ServiceInstance{
@@ -105,12 +101,14 @@ func GetServiceManager() *ServiceManager {
 	for _, svc := range sm.services {
 		svc.loadService()
 		svc.attachProcess()
+		svc.attachTunnel()
 	}
 	sm.self.Name = COSTRICT_NAME
 	sm.self.Status = "exited"
 	sm.self.Spec = config.Spec().Manager.Service
 	sm.self.component = sm.cm.GetSelf()
 	sm.self.loadService()
+	sm.self.attachTunnel()
 	if env.Daemon {
 		sm.self.Pid = os.Getpid()
 		sm.self.Status = "running"
@@ -225,6 +223,10 @@ func (svc *ServiceInstance) GetDetail() ServiceDetail {
  */
 func (svc *ServiceInstance) GetProc() *ProcessInstance {
 	return svc.proc
+}
+
+func (svc *ServiceInstance) GetTunnel() *TunnelInstance {
+	return svc.tun
 }
 
 /**
@@ -420,7 +422,7 @@ func (svc *ServiceInstance) attachProcess() error {
 		svc.saveService()
 		return err
 	}
-	err := GetProcessManager().AttachProcess(svc.proc, svc.Pid)
+	err := svc.proc.AttachProcess(svc.Pid)
 	if err != nil {
 		logger.Warnf("Process %d for service %s not found, marking as exited", svc.Pid, name)
 		svc.Status = "exited"
@@ -433,6 +435,104 @@ func (svc *ServiceInstance) attachProcess() error {
 		logger.Infof("Service %s process %d is still running", name, svc.Pid)
 	}
 	return nil
+}
+
+func (svc *ServiceInstance) attachTunnel() error {
+	if svc.Spec.Accessible != "remote" {
+		return nil
+	}
+	svc.tun = CreateTunnel(svc.Name, []int{svc.Port})
+	if !svc.tun.hasCache() {
+		logger.Infof("Tunnel for service '%s' does not exist", svc.Spec.Name)
+		svc.tun = nil
+		return nil
+	}
+	if err := svc.tun.loadCache(); err != nil {
+		logger.Errorf("Load tunnel (%s) failed: %v", svc.Spec.Name, err)
+		return err
+	}
+	return nil
+}
+
+/**
+ * Start individual service
+ * @param {context.Context} ctx - Context for cancellation and timeout
+ * @param {ServiceInstance} svc - Service instance to start
+ * @returns {error} Returns error if start fails, nil on success
+ * @description
+ * - Allocates port for service from specification
+ * - Creates process instance for service
+ * - Sets restart callback to update service information
+ * - Starts process via process manager
+ * - Updates service status and saves to cache
+ * - Creates tunnel if service has tunnel configuration
+ * - Logs successful service start
+ * @throws
+ * - Port allocation errors
+ * - Process creation errors
+ * - Process start errors
+ * - Tunnel creation errors
+ * @private
+ */
+func (svc *ServiceInstance) startService(ctx context.Context) error {
+	spec := &svc.Spec
+	port, err := utils.AllocPort(spec.Port)
+	if err != nil {
+		return err
+	}
+	svc.Port = port
+
+	if _, err = svc.CreateProcessInstance(); err != nil {
+		svc.Pid = 0
+		svc.Status = "error"
+		return err
+	}
+	svc.proc.SetExitedCallback(func(pi *ProcessInstance) {
+		svc.proc.RestartProcess()
+		svc.Pid = svc.proc.Pid
+	})
+	if err := svc.proc.StartProcess(); err != nil {
+		svc.Status = "error"
+		svc.Pid = 0
+		svc.proc = nil
+		return err
+	}
+	svc.Pid = svc.proc.Pid
+	svc.StartTime = time.Now().Format(time.RFC3339)
+	svc.Status = "running"
+
+	if spec.Accessible == "remote" {
+		svc.tun = CreateTunnel(svc.Name, []int{svc.Port})
+		if err = svc.tun.OpenTunnel(); err != nil {
+			logger.Errorf("Start tunnel (%s:%d) failed: %v", spec.Name, svc.Port, err)
+		}
+	} else {
+		logger.Debugf("ignore %s", spec.Name)
+	}
+	svc.saveService()
+	return nil
+}
+
+func (svc *ServiceInstance) stopService() {
+	if svc.proc != nil {
+		if err := svc.proc.StopProcess(); err != nil {
+			logger.Errorf("Failed to stop the service '%s' (PID: %d)", svc.Spec.Name, svc.Pid)
+		} else {
+			logger.Infof("Successfully stopped the service '%s' (PID: %d)", svc.Spec.Name, svc.Pid)
+		}
+	}
+	if svc.tun != nil {
+		if err := svc.tun.CloseTunnel(); err != nil {
+			logger.Errorf("Failed to close tunnel '%s' (Port: %d)", svc.Name, svc.Port)
+		} else {
+			logger.Infof("Successfully closed the tunnel '%s' (Port: %d)", svc.Name, svc.Port)
+		}
+		svc.tun = nil
+	}
+	svc.Status = "stopped"
+	svc.Pid = 0
+	svc.proc = nil
+	svc.saveService()
 }
 
 /**
@@ -470,6 +570,36 @@ func (svc *ServiceInstance) CreateProcessInstance() (*ProcessInstance, error) {
 	}
 	svc.proc = NewProcessInstance("service "+svc.Name, name, command, cmdArgs)
 	return svc.proc, nil
+}
+
+func (svc *ServiceInstance) OpenTunnel() error {
+	if svc.Spec.Accessible == "remote" {
+		svc.tun = CreateTunnel(svc.Name, []int{svc.Port})
+		if err := svc.tun.OpenTunnel(); err != nil {
+			logger.Errorf("Start tunnel (%s:%d) failed: %v", svc.Name, svc.Port, err)
+			return err
+		}
+		return nil
+	} else {
+		logger.Debugf("ignore %s", svc.Name)
+		return fmt.Errorf("not support")
+	}
+}
+
+func (svc *ServiceInstance) CloseTunnel() error {
+	if svc.tun == nil {
+		return nil
+	}
+	err := svc.tun.CloseTunnel()
+	svc.tun = nil
+	return err
+}
+
+func (svc *ServiceInstance) ReopenTunnel() error {
+	if svc.tun != nil {
+		svc.CloseTunnel()
+	}
+	return svc.OpenTunnel()
 }
 
 /**
@@ -529,6 +659,9 @@ func (sm *ServiceManager) GetInstances(includeSelf bool) []*ServiceInstance {
  * }
  */
 func (sm *ServiceManager) GetInstance(name string) *ServiceInstance {
+	if name == COSTRICT_NAME {
+		return sm.GetSelf()
+	}
 	if svc, exist := sm.services[name]; exist {
 		return svc
 	}
@@ -558,11 +691,12 @@ func (sm *ServiceManager) StartAll(ctx context.Context) error {
 			if svc.Status == "running" {
 				continue
 			}
-			if err := sm.startService(ctx, svc); err != nil {
+			if err := svc.startService(ctx); err != nil {
 				logger.Errorf("Failed to start service '%s': %v", svc.Spec.Name, err)
 			}
 		}
 	}
+	sm.export()
 	return nil
 }
 
@@ -579,7 +713,7 @@ func (sm *ServiceManager) StartAll(ctx context.Context) error {
  */
 func (sm *ServiceManager) StopAll() {
 	for _, svc := range sm.services {
-		sm.stopService(svc)
+		svc.stopService()
 	}
 	sm.export()
 }
@@ -612,10 +746,11 @@ func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
 	if svc.Status == "running" {
 		return fmt.Errorf("service %s is already running", name)
 	}
-	if err := sm.startService(ctx, svc); err != nil {
+	if err := svc.startService(ctx); err != nil {
 		logger.Errorf("Start [%s] failed: %v", name, err)
 		return err
 	}
+	sm.export()
 	return nil
 }
 
@@ -646,12 +781,13 @@ func (sm *ServiceManager) RestartService(ctx context.Context, name string) error
 		return fmt.Errorf("service %s not found", name)
 	}
 	if svc.Status == "running" {
-		sm.stopService(svc)
+		svc.stopService()
 	}
-	if err := sm.startService(ctx, svc); err != nil {
+	if err := svc.startService(ctx); err != nil {
 		logger.Errorf("Restart [%s] failed: %v", name, err)
 		return err
 	}
+	sm.export()
 	return nil
 }
 
@@ -680,7 +816,8 @@ func (sm *ServiceManager) StopService(name string) error {
 	if svc.Status != "running" {
 		return nil
 	}
-	sm.stopService(svc)
+	svc.stopService()
+	sm.export()
 	return nil
 }
 
@@ -703,15 +840,6 @@ func (sm *ServiceManager) CheckServices() {
 			logger.Errorf("Service [%s] is unhealthy", svc.Spec.Name)
 		}
 	}
-}
-
-func (sm *ServiceManager) MonitorServices() error {
-	for _, svc := range sm.services {
-		if svc.Status == "running" && svc.Port > 0 && !utils.CheckPortConnectable(svc.Port) {
-			logger.Errorf("Service [%s] is unhealthy", svc.Spec.Name)
-		}
-	}
-	return nil
 }
 
 /**
@@ -797,88 +925,4 @@ func (sm *ServiceManager) export() error {
 		return err
 	}
 	return nil
-}
-
-/**
- * Start individual service
- * @param {context.Context} ctx - Context for cancellation and timeout
- * @param {ServiceInstance} svc - Service instance to start
- * @returns {error} Returns error if start fails, nil on success
- * @description
- * - Allocates port for service from specification
- * - Creates process instance for service
- * - Sets restart callback to update service information
- * - Starts process via process manager
- * - Updates service status and saves to cache
- * - Creates tunnel if service has tunnel configuration
- * - Logs successful service start
- * @throws
- * - Port allocation errors
- * - Process creation errors
- * - Process start errors
- * - Tunnel creation errors
- * @private
- */
-func (sm *ServiceManager) startService(ctx context.Context, svc *ServiceInstance) error {
-	spec := &svc.Spec
-	port, err := utils.AllocPort(spec.Port)
-	if err != nil {
-		return err
-	}
-	svc.Port = port
-
-	if _, err = svc.CreateProcessInstance(); err != nil {
-		svc.Pid = 0
-		svc.Status = "error"
-		return err
-	}
-	svc.proc.SetRestartCallback(func(pi *ProcessInstance) {
-		svc.Pid = pi.Pid
-		svc.Status = "running"
-		svc.saveService()
-	})
-	if err := sm.pm.StartProcess(svc.proc); err != nil {
-		svc.Status = "error"
-		svc.Pid = 0
-		svc.proc = nil
-		return err
-	}
-	svc.Pid = svc.proc.Pid
-	svc.StartTime = time.Now().Format(time.RFC3339)
-	svc.Status = "running"
-
-	if spec.Accessible == "remote" {
-		svc.tun, err = sm.tm.StartTunnel(spec.Name, svc.Port)
-		if err != nil {
-			logger.Errorf("Start tunnel (%s:%d) failed: %v", spec.Name, svc.Port, err)
-		}
-	} else {
-		logger.Debugf("ignore %s", spec.Name)
-	}
-	svc.saveService()
-	sm.export()
-	return nil
-}
-
-func (sm *ServiceManager) stopService(svc *ServiceInstance) {
-	if svc.proc != nil {
-		if err := sm.pm.StopProcess(svc.proc); err != nil {
-			logger.Errorf("Failed to stop the service %s (PID: %d)", svc.Spec.Name, svc.Pid)
-		} else {
-			logger.Infof("Successfully stopped the service %s (PID: %d)", svc.Spec.Name, svc.Pid)
-		}
-	}
-	if svc.tun != nil {
-		if err := sm.tm.CloseTunnel(svc.Name, svc.Port); err != nil {
-			logger.Errorf("Failed to close tunnel %s (Port: %d)", svc.Name, svc.Port)
-		} else {
-			logger.Infof("Successfully closed the tunnel %s (Port: %d)", svc.Name, svc.Port)
-		}
-		svc.tun = nil
-	}
-	svc.Status = "stopped"
-	svc.Pid = 0
-	svc.proc = nil
-	svc.saveService()
-	sm.export()
 }

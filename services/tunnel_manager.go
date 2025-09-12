@@ -40,49 +40,19 @@ type PortQueryResponse struct {
 type TunnelArgs struct {
 	LocalPort   int
 	MappingPort int
+	Pairs       []models.PortPair
 	RemoteAddr  string
 	ProcessName string
 	ProcessPath string
 }
 
 type TunnelInstance struct {
-	models.Tunnel
-	proc *ProcessInstance
-}
-
-type TunnelManager struct {
-	daemon     bool
-	tunnelsDir string
-	tunnels    []*TunnelInstance
-	pm         *ProcessManager
-}
-
-var tunnelManager *TunnelManager
-
-/**
- * Get singleton instance of TunnelManager
- * @returns {*TunnelManager} Returns the singleton TunnelManager instance
- * @description
- * - Implements singleton pattern to ensure only one TunnelManager exists
- * - Initializes tunnel manager with cache directory, daemon mode and process manager
- * - Loads existing tunnel cache on first creation
- * - Returns existing instance if already initialized
- * @example
- * tunnelMgr := GetTunnelManager()
- * tunnel, err := tunnelMgr.StartTunnel("myapp", 8080)
- */
-func GetTunnelManager() *TunnelManager {
-	if tunnelManager != nil {
-		return tunnelManager
-	}
-	tm := &TunnelManager{
-		tunnelsDir: filepath.Join(env.CostrictDir, "cache", "tunnels"),
-		daemon:     env.Daemon,
-		pm:         GetProcessManager(),
-	}
-	tm.loadCache()
-	tunnelManager = tm
-	return tunnelManager
+	Name        string            `json:"name"`        // service name
+	Pairs       []models.PortPair `json:"pairs"`       // Port pairs
+	Status      models.RunStatus  `json:"status"`      // tunnel status(running/stopped/error/exited)
+	CreatedTime time.Time         `json:"createdTime"` // creation time
+	Pid         int               `json:"pid"`         // process ID of the tunnel
+	proc        *ProcessInstance
 }
 
 /**
@@ -96,21 +66,22 @@ func GetTunnelManager() *TunnelManager {
  * - Sets creation time to current time and PID to 0
  * - Tunnel is not started yet, just created with initial configuration
  * @example
- * tunnel := tunnelMgr.newTunnel("myapp", 8080)
- * // Returns: TunnelInstance with name="myapp", localPort=8080, status=stopped
+ * tun := CreateTunnel("myapp", []int{8080})
  */
-func newTunnel(name string, port int) *TunnelInstance {
-	return &TunnelInstance{
-		Tunnel: models.Tunnel{
-			Name:        name,
-			LocalPort:   port,
-			MappingPort: 0,
-			Protocol:    "http",
-			Status:      models.StatusStopped,
-			CreatedTime: time.Now(),
-			Pid:         0,
-		},
+func CreateTunnel(appName string, ports []int) *TunnelInstance {
+	pairs := []models.PortPair{}
+	for _, p := range ports {
+		pairs = append(pairs, models.PortPair{LocalPort: p, MappingPort: 0})
 	}
+	tun := &TunnelInstance{
+		Name:        appName,
+		Pairs:       pairs,
+		Status:      "exited",
+		Pid:         0,
+		CreatedTime: time.Now().Local(),
+	}
+
+	return tun
 }
 
 /**
@@ -126,7 +97,15 @@ func newTunnel(name string, port int) *TunnelInstance {
  * // Returns: "myapp:8080->9000"
  */
 func (ti *TunnelInstance) getTitle() string {
-	return fmt.Sprintf("%s:%d->%d", ti.Name, ti.LocalPort, ti.MappingPort)
+	return fmt.Sprintf("%s:%d->%d", ti.Name, ti.Pairs[0].LocalPort, ti.Pairs[0].MappingPort)
+}
+
+func (ti *TunnelInstance) toJSON() (string, error) {
+	data, err := json.MarshalIndent(ti, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 /**
@@ -142,7 +121,7 @@ func (ti *TunnelInstance) getTitle() string {
  * // Returns: /path/to/costrict/cache/tunnels/myapp-8080.json
  */
 func (tun *TunnelInstance) getCacheFname() string {
-	return filepath.Join(env.CostrictDir, "cache", "tunnels", fmt.Sprintf("%s-%d.json", tun.Name, tun.LocalPort))
+	return filepath.Join(env.CostrictDir, "cache", "tunnels", fmt.Sprintf("%s.json", tun.Name))
 }
 
 /**
@@ -164,7 +143,7 @@ func (tun *TunnelInstance) getCacheFname() string {
  * - Non-200 HTTP status codes
  * - JSON parsing errors for response
  * @example
- * err := tm.allocMappingPort(tunnel)
+ * err := tm.allocMappingPort(tun)
  * if err != nil {
  *     log.Printf("Failed to get port mapping: %v", err)
  *     return err
@@ -172,13 +151,13 @@ func (tun *TunnelInstance) getCacheFname() string {
  */
 func (tun *TunnelInstance) allocMappingPort() error {
 	client := &http.Client{}
-	tun.MappingPort = 0
+	tun.Pairs[0].MappingPort = 0
 
 	// 创建请求 body
 	requestBody := PortAllocationRequest{
 		ClientId:   config.GetMachineID(),
 		AppName:    tun.Name,
-		ClientPort: tun.LocalPort,
+		ClientPort: tun.Pairs[0].LocalPort,
 	}
 
 	jsonBody, err := json.Marshal(requestBody)
@@ -200,114 +179,28 @@ func (tun *TunnelInstance) allocMappingPort() error {
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.Errorf("allocMappingPort failed - URL: %s, Body: %s, Error: %v", req.URL.String(), string(jsonBody), err)
-		return fmt.Errorf("failed to request tunnel-manager: %w", err)
+		return fmt.Errorf("failed to request manager: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		// 读取响应体内容
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			logger.Errorf("Failed to read response body: %v", err)
 		} else {
 			logger.Errorf("Failed to request URL: %s, Body: %s, Status Code: %d, Response Body: %s", req.URL.String(), string(jsonBody), resp.StatusCode, string(bodyBytes))
 		}
-		return fmt.Errorf("tunnel-manager returned error status code: %d", resp.StatusCode)
+		return fmt.Errorf("manager returned error status code: %d", resp.StatusCode)
 	}
 
 	var result PortAllocationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		logger.Errorf("Failed to parse response: %v", err)
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
-	tun.MappingPort = result.MappingPort
+	tun.Pairs[0].MappingPort = result.MappingPort
 	logger.Infof("Successfully applied for port mapping, result: %+v", result)
 	return nil
-}
-
-/**
- * Check single tunnel port mapping for changes
- * @param {string} clientId - Client ID for authentication
- * @param {string} appName - Application name to check
- * @param {int} port - Port number to check
- * @returns {(bool, error)} Returns (needsRestart, error) where needsRestart indicates if tunnel needs restart
- * @description
- * - Sends GET request to tunnel-manager API to get port allocation records
- * - Retrieves local tunnel instance using app name and port
- * - Compares mappingPort from API response with local tunnel MappingPort
- * - Returns true if ports are inconsistent (needs restart), false if consistent
- * - Returns error if tunnel is not found or HTTP request fails
- * - Logs detailed information about check results
- * @throws
- * - HTTP request creation errors
- * - Network request errors
- * - Non-200 HTTP status codes
- * - JSON parsing errors for response
- * - Tunnel not found errors
- * @example
- * needsRestart, err := tm.checkTunnel(tun)
- * if err != nil {
- *     log.Printf("Failed to check tunnel: %v", err)
- *     return false, err
- * }
- * if needsRestart {
- *     log.Printf("Tunnel needs restart")
- * }
- */
-func (tun *TunnelInstance) checkTunnel() (bool, error) {
-	client := &http.Client{}
-
-	// 构建 API URL
-	url := fmt.Sprintf("%s/ports/%s/%s", config.Get().Cloud.TunManagerUrl, config.GetMachineID(), tun.Name)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return false, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// 获取认证请求头，包含Authorization字段
-	authHeaders := config.GetAuthHeaders()
-	for key, value := range authHeaders {
-		req.Header.Set(key, value)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.Errorf("checkTunnel failed - URL: %s, Error: %v", url, err)
-		return false, fmt.Errorf("failed to request tunnel-manager: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		// 读取响应体内容
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			logger.Errorf("Failed to read response body: %v", err)
-		} else {
-			logger.Errorf("Failed to request URL: %s, Status Code: %d, Response Body: %s", url, resp.StatusCode, string(bodyBytes))
-		}
-		if resp.StatusCode == http.StatusNotFound {
-			return true, nil
-		}
-		return false, fmt.Errorf("tunnel-manager returned error status code: %d", resp.StatusCode)
-	}
-
-	// 解析响应
-	var result PortQueryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	logger.Debugf("Successfully retrieved port allocation records for app [%s], new: %d",
-		tun.getTitle(), result.MappingPort)
-
-	// 检查端口映射是否一致
-	if tun.MappingPort != result.MappingPort {
-		logger.Warnf("Port mapping inconsistent for tunnel [%s, PID:%d], old: %d, new: %d",
-			tun.getTitle(), tun.Pid, tun.MappingPort, result.MappingPort)
-		return true, nil
-	} else {
-		return false, nil
-	}
 }
 
 /**
@@ -328,43 +221,48 @@ func (tun *TunnelInstance) checkTunnel() (bool, error) {
  * - Process instance creation errors
  * - Process start errors
  * @example
- * err := tm.startTunnel(tunnelInstance)
+ * err := tunnelInstance.openTunnel()
  * if err != nil {
  *     log.Printf("Failed to start tunnel: %v", err)
  *     return err
  * }
  */
-func (tunnel *TunnelInstance) startTunnel() error {
+func (tun *TunnelInstance) OpenTunnel() error {
+	if tun.Status == models.StatusRunning {
+		logger.Infof("Tunnel (%s) has been started, PID: %d", tun.getTitle(), tun.Pid)
+		return nil
+	}
 	var err error
 
 	defer func() {
-		tunnel.saveTunnel()
+		tun.saveTunnel()
 	}()
-	tunnel.Status = models.StatusError
+	tun.Status = models.StatusError
 
-	if err := tunnel.allocMappingPort(); err != nil {
+	if err := tun.allocMappingPort(); err != nil {
 		logger.Errorf("Allocate mapping port failed: %v", err)
 		return err
 	}
 
-	tunnel.proc, err = tunnel.createProcessInstance()
+	tun.proc, err = tun.createProcessInstance()
 	if err != nil {
 		logger.Errorf("Failed to get command info: %v", err)
 		return fmt.Errorf("failed to get command info: %w", err)
 	}
-	tunnel.proc.SetRestartCallback(func(pi *ProcessInstance) {
-		tunnel.Pid = pi.Pid
-		tunnel.saveTunnel()
+	tun.proc.SetExitedCallback(func(pi *ProcessInstance) {
+		pi.RestartProcess()
+		// tun.Pid = pi.Pid
+		// tun.saveTunnel()
 	})
-	if err := GetProcessManager().StartProcess(tunnel.proc); err != nil {
+	if err := tun.proc.StartProcess(); err != nil {
 		return err
 	}
-	tunnel.Status = models.StatusRunning
-	tunnel.Pid = tunnel.proc.Pid
-	tunnel.CreatedTime = tunnel.proc.StartTime
+	tun.Status = models.StatusRunning
+	tun.Pid = tun.proc.Pid
+	tun.CreatedTime = tun.proc.StartTime
 
 	logger.Infof("Successfully created tunnel (%s), process: %s (PID: %d)",
-		tunnel.getTitle(), tunnel.proc.ProcessName, tunnel.Pid)
+		tun.getTitle(), tun.proc.ProcessName, tun.Pid)
 	return nil
 }
 
@@ -379,27 +277,27 @@ func (tunnel *TunnelInstance) startTunnel() error {
  * - Used for graceful tunnel shutdown
  * @private
  * @example
- * tunnelInstance.stopTunnel()
+ * tunnelInstance.closeTunnel()
  */
-func (tunnel *TunnelInstance) stopTunnel() {
-	// 优先使用记录的进程名和PID关闭进程
-	if tunnel.proc != nil {
-		if err := GetProcessManager().StopProcess(tunnel.proc); err != nil {
+func (tun *TunnelInstance) CloseTunnel() error {
+	if tun.proc != nil {
+		if err := tun.proc.StopProcess(); err != nil {
 			logger.Errorf("Failed to close the tunnel (%s) (PID: %d, NAME: %s): %v",
-				tunnel.getTitle(), tunnel.Pid, tunnel.proc.ProcessName, err)
+				tun.getTitle(), tun.Pid, tun.proc.ProcessName, err)
 		} else {
 			logger.Infof("Successfully closed the tunnel (%s) (PID: %d, NAME: %s)",
-				tunnel.getTitle(), tunnel.Pid, tunnel.proc.ProcessName)
+				tun.getTitle(), tun.Pid, tun.proc.ProcessName)
 		}
 	} else {
-		logger.Infof("Tunnel (%s) process has stopped", tunnel.getTitle())
+		logger.Infof("Tunnel (%s) process has stopped", tun.getTitle())
 	}
-	utils.FreePort(tunnel.LocalPort)
-	tunnel.cleanTunnel()
+	utils.FreePort(tun.Pairs[0].LocalPort)
+	tun.cleanTunnel()
 
-	tunnel.Status = models.StatusStopped
-	tunnel.Pid = 0
-	tunnel.proc = nil
+	tun.Status = models.StatusStopped
+	tun.Pid = 0
+	tun.proc = nil
+	return nil
 }
 
 /**
@@ -415,17 +313,17 @@ func (tunnel *TunnelInstance) stopTunnel() {
  * - Tunnel stop errors
  * - Tunnel start errors
  * @example
- * err := tm.restartTunnel(tunnelInstance)
+ * err := tunnelInstance.reconnTunnel()
  * if err != nil {
  *     log.Printf("Failed to restart tunnel: %v", err)
  *     return err
  * }
  */
-func (tunnel *TunnelInstance) restartTunnel() error {
-	if tunnel.Status == models.StatusRunning {
-		tunnel.stopTunnel()
+func (tun *TunnelInstance) ReopenTunnel() error {
+	if tun.Status == models.StatusRunning {
+		tun.CloseTunnel()
 	}
-	return tunnel.startTunnel()
+	return tun.OpenTunnel()
 }
 
 /**
@@ -450,15 +348,15 @@ func (tunnel *TunnelInstance) restartTunnel() error {
  * }
  * // Use process instance to start tunnel process
  */
-func (tunnel *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
+func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
 	cfg := config.Get()
 	name := cfg.Tunnel.ProcessName
 	if runtime.GOOS == "windows" {
 		name = fmt.Sprintf("%s.exe", cfg.Tunnel.ProcessName)
 	}
 	args := TunnelArgs{
-		LocalPort:   tunnel.LocalPort,
-		MappingPort: tunnel.MappingPort,
+		LocalPort:   tun.Pairs[0].LocalPort,
+		MappingPort: tun.Pairs[0].MappingPort,
 		RemoteAddr:  cfg.Cloud.TunnelUrl,
 		ProcessName: name,
 		ProcessPath: filepath.Join(env.CostrictDir, "bin", name),
@@ -468,8 +366,8 @@ func (tunnel *TunnelInstance) createProcessInstance() (*ProcessInstance, error) 
 		logger.Errorf("Tunnel startup settings are incorrect, setting: %+v", cfg.Tunnel)
 		return nil, err
 	}
-	tunnel.proc = NewProcessInstance("tunnel "+tunnel.Name, name, command, cmdArgs)
-	return tunnel.proc, nil
+	tun.proc = NewProcessInstance("tunnel "+tun.Name, name, command, cmdArgs)
+	return tun.proc, nil
 }
 
 /**
@@ -500,7 +398,7 @@ func (tun *TunnelInstance) saveTunnel() error {
 			return fmt.Errorf("failed to create cache directory: %w", err)
 		}
 
-		data, err := tun.ToJSON()
+		data, err := tun.toJSON()
 		if err != nil {
 			return fmt.Errorf("failed to serialize tunnel info: %w", err)
 		}
@@ -546,6 +444,14 @@ func (tun *TunnelInstance) cleanTunnel() error {
 	return nil
 }
 
+func (tun *TunnelInstance) hasCache() bool {
+	fname := tun.getCacheFname()
+	if _, err := os.Stat(fname); err == nil {
+		return true
+	}
+	return false
+}
+
 /**
  * Load tunnel instance from cache into memory
  * @param {TunnelInstance} tun - Tunnel instance loaded from cache
@@ -557,12 +463,19 @@ func (tun *TunnelInstance) cleanTunnel() error {
  * - Silently returns on errors during process attachment
  * @example
  * // Called from loadCache when reading tunnel data from disk
- * tm.loadTunnel(cachedTunnel)
+ * tm.loadCache()
  */
-func (tun *TunnelInstance) loadTunnel(cached TunnelInstance) error {
-	tun.Tunnel = cached.Tunnel
+func (tun *TunnelInstance) loadCache() error {
+	data, err := os.ReadFile(tun.getCacheFname())
+	if err != nil {
+		return err
+	}
+	var cached TunnelInstance
+	if err := json.Unmarshal(data, &cached); err != nil {
+		return err
+	}
+	*tun = cached
 	if cached.Pid > 0 {
-		var err error
 		tun.proc, err = tun.createProcessInstance()
 		if err != nil {
 			tun.proc = nil
@@ -570,7 +483,7 @@ func (tun *TunnelInstance) loadTunnel(cached TunnelInstance) error {
 			tun.Status = models.StatusExited
 			return err
 		}
-		if err = GetProcessManager().AttachProcess(tun.proc, tun.Pid); err != nil {
+		if err = tun.proc.AttachProcess(tun.Pid); err != nil {
 			tun.proc = nil
 			tun.Pid = 0
 			tun.Status = models.StatusExited
@@ -578,390 +491,5 @@ func (tun *TunnelInstance) loadTunnel(cached TunnelInstance) error {
 		}
 	}
 	logger.Infof("Successfully loaded tunnel (%s,PID:%d) from cache", tun.getTitle(), tun.Pid)
-	return nil
-}
-
-/**
- * Get tunnel instance by application name and port
- * @param {string} appName - Application name to search for
- * @param {int} port - Port number to match (0 to match any port)
- * @returns {*TunnelInstance} Returns found tunnel instance or nil if not found
- * @description
- * - Iterates through all managed tunnels
- * - Matches by application name (exact match required)
- * - If port > 0, also matches by local port
- * - If port = 0, returns first tunnel with matching app name
- * - Returns nil if no matching tunnel found
- * @example
- * tunnel := tm.getTunnel("myapp", 8080)    // Get specific tunnel
- * tunnel := tm.getTunnel("myapp", 0)       // Get any tunnel for myapp
- */
-func (tm *TunnelManager) getTunnel(appName string, port int) *TunnelInstance {
-	for _, tun := range tm.tunnels {
-		if tun.Name != appName {
-			continue
-		}
-		if port != 0 && tun.LocalPort != port {
-			continue
-		}
-		return tun
-	}
-	return nil
-}
-
-/**
- * Create or retrieve tunnel instance for application
- * @param {string} appName - Application name for the tunnel
- * @param {int} localPort - Local port number for the tunnel
- * @returns {*TunnelInstance} Returns existing or newly created tunnel instance
- * @description
- * - Searches for existing tunnel with matching name and port
- * - Returns existing tunnel if found
- * - Creates new tunnel using newTunnel() if not found
- * - Adds new tunnel to tunnels list
- * - Does not start the tunnel, just creates the instance
- * @example
- * tunnel := tm.createTunnel("myapp", 8080)
- * // Returns existing tunnel if found, or creates new one
- */
-func (tm *TunnelManager) createTunnel(appName string, localPort int) *TunnelInstance {
-	for i, tun := range tm.tunnels {
-		if tun.Name != appName {
-			continue
-		}
-		if tun.LocalPort != localPort {
-			continue
-		}
-		return tm.tunnels[i]
-	}
-	tunnel := newTunnel(appName, localPort)
-	tm.tunnels = append(tm.tunnels, tunnel)
-	return tunnel
-}
-
-/**
- * Load tunnel instances from cache directory
- * @returns {error} Returns error if cache directory read fails, nil on success
- * @description
- * - Reads all files from tunnels cache directory
- * - Skips directories and continues on read errors
- * - Unmarshals JSON data into TunnelInstance objects
- * - Loads each valid tunnel instance using loadTunnel()
- * - Returns nil if cache directory doesn't exist (first run)
- * - Silently continues on individual file parsing errors
- * @throws
- * - Cache directory access errors (except ENOENT)
- * @example
- * err := tm.loadCache()
- * if err != nil {
- *     log.Printf("Failed to load tunnel cache: %v", err)
- * }
- */
-func (tm *TunnelManager) loadCache() error {
-	files, err := os.ReadDir(tm.tunnelsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to read tunnel cache directory: %w", err)
-	}
-
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-
-		data, err := os.ReadFile(filepath.Join(tm.tunnelsDir, file.Name()))
-		if err != nil {
-			continue
-		}
-
-		var cached TunnelInstance
-		if err := json.Unmarshal(data, &cached); err != nil {
-			continue
-		}
-		tun := tm.createTunnel(cached.Name, cached.LocalPort)
-		if tun.proc != nil {
-			logger.Errorf("Tunnel [%s] already exist", tun.getTitle())
-			continue
-		}
-		tun.loadTunnel(cached)
-	}
-	return nil
-}
-
-/**
- * Start tunnel for application
- * @param {string} appName - Application name that will use the tunnel
- * @param {int} port - If specified, indicates the application already occupies this port. If 0, an available port will be automatically allocated
- * @returns {(*models.Tunnel, error)} Returns created tunnel info and error if any
- * @description
- * - Creates or retrieves a tunnel instance for the specified application
- * - If port is 0, tries to get existing tunnel or creates a new one with available port
- * - If port is specified, creates tunnel for that specific port
- * - Requests port mapping from tunnel manager
- * - Starts the tunnel process with appropriate command and arguments
- * - Updates tunnel status and process information
- * @throws
- * - No available port found (findAvailablePort)
- * - Port mapping request failed (allocMappingPort)
- * - Command info generation failed (createProcessInstance)
- * - Tunnel process start failed (cmd.Start)
- * @example
- * tunnel, err := tunnelService.StartTunnel("myapp", 0)
- * if err != nil {
- *     log.Fatal(err)
- * }
- */
-/**
- * Start new tunnel for application
- * @param {string} appName - Name of the application for the tunnel
- * @param {int} port - Local port number for the tunnel
- * @returns {TunnelInstance} Returns created tunnel instance
- * @returns {error} Returns error if start fails, nil on success
- * @description
- * - Checks if tunnel already exists for the app and port
- * - Creates new tunnel instance with specified parameters
- * - Starts tunnel process and initializes connection
- * - Adds tunnel to manager and saves to cache
- * - Returns created tunnel instance
- * @throws
- * - Tunnel already exists errors
- * - Tunnel start errors
- * - Cache save errors
- * @example
- * tunnelManager := GetTunnelManager()
- * tunnel, err := tunnelManager.StartTunnel("myapp", 8080)
- * if err != nil {
- *     logger.Error("Failed to start tunnel:", err)
- * }
- */
-func (tm *TunnelManager) StartTunnel(appName string, port int) (*TunnelInstance, error) {
-	var tunnel *TunnelInstance
-
-	if port == 0 {
-		tunnel = tm.getTunnel(appName, 0)
-		if tunnel == nil {
-			// No existing tunnel found, create new one with available port
-			availablePort, err := utils.AllocPort(0)
-			if err != nil {
-				logger.Fatalf("no available port found: %v", err)
-				return nil, fmt.Errorf("no available port found: %w", err)
-			}
-			tunnel = tm.createTunnel(appName, availablePort)
-		}
-	} else { //已经指定端口，说明应用已经占据这个端口了
-		tunnel = tm.createTunnel(appName, port)
-	}
-	if tunnel.Status == models.StatusRunning {
-		logger.Infof("Tunnel (%s) has been started, PID: %d", tunnel.getTitle(), tunnel.Pid)
-		return tunnel, nil
-	}
-	if err := tunnel.startTunnel(); err != nil {
-		logger.Errorf("Start [%s] failed: %v", tunnel.getTitle(), err)
-		return nil, err
-	}
-	return tunnel, nil
-}
-
-/**
- * Close tunnel for specified application and port
- * @param {string} appName - Application name
- * @param {int} port - Port number
- * @returns {error} Returns error if close operation fails, nil on success
- * @description
- * - Retrieves tunnel instance using getTunnel()
- * - Returns error if tunnel doesn't exist
- * - Returns immediately if tunnel is not running
- * - Stops tunnel process using recorded process information
- * - Logs success or failure of process termination
- * - Frees the local port for reuse
- * - Removes tunnel cache file
- * - Resets tunnel status to stopped and clears PID and process reference
- * @throws
- * - Tunnel not found errors
- * - Process stop errors
- * - Cache file deletion errors
- * @example
- * err := tm.CloseTunnel("myapp", 8080)
- * if err != nil {
- *     log.Printf("Failed to close tunnel: %v", err)
- * }
- */
-func (tm *TunnelManager) CloseTunnel(appName string, port int) error {
-	tunnel := tm.getTunnel(appName, port)
-	if tunnel == nil {
-		return fmt.Errorf("tunnel [%s:%d] not exist", appName, port)
-	}
-	if tunnel.Status != models.StatusRunning {
-		return nil
-	}
-	tunnel.stopTunnel()
-	return nil
-}
-
-/**
- * List all managed tunnels
- * @returns {[]*models.Tunnel} Returns slice of tunnel information
- * @description
- * - Creates new slice to hold tunnel data
- * - Iterates through all managed tunnel instances
- * - Extracts Tunnel struct from each TunnelInstance
- * - Returns slice containing all tunnel information
- * - Does not include process instance details, only tunnel metadata
- * @example
- * tunnels := tm.ListTunnels()
- * for _, tunnel := range tunnels {
- *     fmt.Printf("Tunnel: %s:%d->%d\n", tunnel.Name, tunnel.LocalPort, tunnel.MappingPort)
- * }
- */
-/**
- * List all managed tunnels
- * @returns {[]models.Tunnel} Returns slice of tunnel information
- * @description
- * - Creates slice of tunnel information from all managed instances
- * - Excludes internal process instance details
- * - Used for API responses and tunnel listing
- * @example
- * tunnelManager := GetTunnelManager()
- * tunnels := tunnelManager.ListTunnels()
- * for _, tunnel := range tunnels {
- *     fmt.Printf("Tunnel: %s:%d->%d", tunnel.Name, tunnel.LocalPort, tunnel.MappingPort)
- * }
- */
-func (tm *TunnelManager) ListTunnels() []*models.Tunnel {
-	var tunnels []*models.Tunnel
-	for _, t := range tm.tunnels {
-		tunnels = append(tunnels, &t.Tunnel)
-	}
-	return tunnels
-}
-
-/**
- * Get tunnel information by application name and port
- * @param {string} appName - Application name to search for
- * @param {int} port - Port number to match
- * @returns {(*models.Tunnel, error)} Returns tunnel info and error if any
- * @description
- * - Uses getTunnel() to find tunnel instance
- * - Returns error if tunnel is not found
- * - Returns Tunnel struct (without process instance details) on success
- * - Used by API handlers to provide tunnel information to clients
- * @throws
- * - Tunnel not found errors
- * @example
- * tunnel, err := tm.GetTunnelInfo("myapp", 8080)
- * if err != nil {
- *     log.Printf("Tunnel not found: %v", err)
- *     return nil, err
- * }
- * fmt.Printf("Tunnel: %s:%d -> %d\n", tunnel.Name, tunnel.LocalPort, tunnel.MappingPort)
- */
-func (tm *TunnelManager) GetTunnelInfo(appName string, port int) (*models.Tunnel, error) {
-	tunnel := tm.getTunnel(appName, port)
-	if tunnel == nil {
-		return nil, fmt.Errorf("tunnel not found for app [%s]", appName)
-	}
-	return &tunnel.Tunnel, nil
-}
-
-/**
- * Close all running tunnels
- * @returns {error} Returns the last error encountered, or nil if all tunnels closed successfully
- * @description
- * - Iterates through all managed tunnel instances
- * - Skips tunnels that are not in running state
- * - Calls CloseTunnel() for each running tunnel
- * - Logs errors for individual tunnel close failures
- * - Continues closing remaining tunnels even if some fail
- * - Returns the last error encountered (if any)
- * - Used during application shutdown to clean up all active tunnels
- * @example
- * err := tm.CloseAll()
- * if err != nil {
- *     log.Printf("Some tunnels failed to close: %v", err)
- * }
- */
-func (tm *TunnelManager) CloseAll() {
-	for _, tunnel := range tm.tunnels {
-		if tunnel.Status != models.StatusRunning {
-			continue
-		}
-		if err := tm.CloseTunnel(tunnel.Name, tunnel.LocalPort); err != nil {
-			logger.Errorf("Failed to close tunnel (%s): %v", tunnel.getTitle(), err)
-		}
-	}
-}
-
-/**
- * Check tunnel port mappings and restart if necessary
- * @param {string} clientId - Client ID for authentication
- * @param {string} appName - Application name to check tunnels for
- * @returns {error} Returns error if check operation fails, nil on success
- * @description
- * - Iterates through all local tunnels and calls checkTunnel() for each
- * - Restarts tunnel if checkTunnel indicates port mapping changed
- * - Logs detailed information about check results and restart operations
- * - Handles tunnel restart errors
- * @throws
- * - Tunnel restart errors
- * @example
- * err := tm.CheckTunnels("client123", "myapp")
- * if err != nil {
- *     log.Printf("Failed to check tunnels: %v", err)
- *     return err
- * }
- */
-func (tm *TunnelManager) CheckTunnels() error {
-	// 遍历所有本地隧道
-	for _, tunnel := range tm.tunnels {
-		needsRestart, err := tunnel.checkTunnel()
-		if err != nil {
-			// 如果检查失败，记录错误但继续检查下一个隧道
-			logger.Errorf("Failed to check tunnel [%s:%d]: %v", tunnel.Name, tunnel.LocalPort, err)
-			continue
-		}
-
-		// 如果需要重启，则重启隧道
-		if needsRestart {
-			logger.Warnf("Restarting tunnel [%s:%d] due to port mapping change", tunnel.Name, tunnel.LocalPort)
-
-			// 重启隧道
-			if err := tunnel.restartTunnel(); err != nil {
-				logger.Errorf("Failed to restart tunnel [%s:%d]: %v", tunnel.Name, tunnel.LocalPort, err)
-				return fmt.Errorf("failed to restart tunnel [%s:%d]: %w", tunnel.Name, tunnel.LocalPort, err)
-			}
-
-			logger.Infof("Successfully restarted tunnel [%s:%d]", tunnel.Name, tunnel.LocalPort)
-		}
-	}
-
-	return nil
-}
-
-func (tm *TunnelManager) MonitorTunnels() error {
-	// 遍历所有本地隧道
-	for _, tunnel := range tm.tunnels {
-		needsRestart, err := tunnel.checkTunnel()
-		if err != nil {
-			// 如果检查失败，记录错误但继续检查下一个隧道
-			logger.Errorf("Failed to check tunnel [%s:%d]: %v", tunnel.Name, tunnel.LocalPort, err)
-			continue
-		}
-
-		// 如果需要重启，则重启隧道
-		if needsRestart {
-			logger.Warnf("Restarting tunnel [%s:%d] due to port mapping change", tunnel.Name, tunnel.LocalPort)
-
-			// 重启隧道
-			if err := tunnel.restartTunnel(); err != nil {
-				logger.Errorf("Failed to restart tunnel [%s:%d]: %v", tunnel.Name, tunnel.LocalPort, err)
-				return fmt.Errorf("failed to restart tunnel [%s:%d]: %w", tunnel.Name, tunnel.LocalPort, err)
-			}
-
-			logger.Infof("Successfully restarted tunnel [%s:%d]", tunnel.Name, tunnel.LocalPort)
-		}
-	}
-
 	return nil
 }

@@ -1,4 +1,4 @@
-package tunnel
+package service
 
 import (
 	"fmt"
@@ -10,43 +10,46 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	startApp  string
-	startPort int
-)
-
-var startCmd = &cobra.Command{
-	Use:   "start",
-	Short: "Start tunnel connection",
+var openCmd = &cobra.Command{
+	Use:   "open {service-name}",
+	Short: "Open tunnel for specified service",
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if startApp == "" {
-			log.Fatal("Must specify app name (--app)")
+		serviceName := args[0]
+		if serviceName == "" {
+			log.Fatal("Must specify service name")
 		}
 
 		// 尝试使用 RPC 客户端连接 costrict 服务器
 		rpcClient := rpc.NewHTTPClient(nil)
-		if rpcClient != nil && tryStartTunnelViaRPC(rpcClient, startApp, startPort) {
+		if rpcClient != nil && tryOpenTunnelViaRPC(rpcClient, serviceName) {
 			// RPC 调用成功，直接返回
 			return
 		}
 
 		// RPC 连接失败，回退到原有逻辑
 		log.Printf("Failed to connect to costrict server via RPC, falling back to local tunnel management")
-		tunnelSvc := services.GetTunnelManager()
-		tun, err := tunnelSvc.StartTunnel(startApp, startPort)
-		if err != nil {
-			log.Fatalf("Failed to start tunnel: %v", err)
+		service := services.GetServiceManager()
+		svc := service.GetInstance(serviceName)
+		if svc != nil {
+			if err := svc.OpenTunnel(); err != nil {
+				log.Fatalf("Failed to open tunnel: %v", err)
+				return
+			}
+		} else {
+			log.Fatalf("Failed to open tunnel: %v", serviceName)
+			return
 		}
-		fmt.Printf("Successfully started tunnel for app %s, local port: %d, remote port: %d",
-			startApp, tun.LocalPort, tun.MappingPort)
+		tun := svc.GetTunnel()
+		fmt.Printf("Successfully open tunnel for app %s, local port: %d, remote port: %d",
+			serviceName, tun.Pairs[0].LocalPort, tun.Pairs[0].MappingPort)
 	},
 }
 
-// tryStartTunnelViaRPC 尝试通过 RPC 连接启动隧道
 /**
- * Try to start tunnel via RPC connection to costrict server
+ * Try to open tunnel via RPC connection to costrict server
  * @param {rpc.HTTPClient} rpcClient - RPC client instance
- * @param {string} appName - Application name
+ * @param {string} serviceName - Application name
  * @param {int} port - Port number for tunnel
  * @returns {bool} True if RPC call succeeded, false otherwise
  * @description
@@ -59,20 +62,14 @@ var startCmd = &cobra.Command{
  * - API request errors
  * - Response parsing errors
  * @example
- * success := tryStartTunnelViaRPC(rpcClient, "myapp", 8080)
+ * success := tryOpenTunnelViaRPC(rpcClient, "myapp", 8080)
  * if success {
  *     fmt.Println("Tunnel started via RPC")
  * }
  */
-func tryStartTunnelViaRPC(rpcClient rpc.HTTPClient, appName string, port int) bool {
-	// 构建请求数据
-	requestData := map[string]interface{}{
-		"app":  appName,
-		"port": port,
-	}
-
+func tryOpenTunnelViaRPC(rpcClient rpc.HTTPClient, serviceName string) bool {
 	// 尝试调用 costrict 的 RESTful API
-	response, err := rpcClient.Post("/costrict/api/v1/tunnels", requestData)
+	response, err := rpcClient.Post(fmt.Sprintf("/costrict/api/v1/services/%s/open", serviceName), nil)
 	if err != nil {
 		log.Printf("Failed to call costrict API: %v", err)
 		return false
@@ -110,9 +107,5 @@ func tryStartTunnelViaRPC(rpcClient rpc.HTTPClient, appName string, port int) bo
 }
 
 func init() {
-	startCmd.Flags().SortFlags = false
-	startCmd.Flags().StringVarP(&startApp, "app", "a", "", "App name")
-	startCmd.Flags().IntVarP(&startPort, "port", "p", 0, "Mapping port")
-
-	tunnelCmd.AddCommand(startCmd)
+	serviceCmd.AddCommand(openCmd)
 }

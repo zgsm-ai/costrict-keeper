@@ -1,4 +1,4 @@
-package tunnel
+package service
 
 import (
 	"fmt"
@@ -10,47 +10,45 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	stopApp  string
-	stopPort int
-)
-
-var stopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop tunnel for specified app",
+var closeCmd = &cobra.Command{
+	Use:   "close {service-name}",
+	Short: "Close tunnel for specified serivce",
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if stopApp == "" {
-			log.Fatal("Must specify app name (--app)")
+		serviceName := args[0]
+		if serviceName == "" {
+			log.Fatal("Must specify service name")
 		}
 
 		// 尝试使用 RPC 客户端连接 costrict 服务器
 		rpcClient := rpc.NewHTTPClient(nil)
-		if tryStopTunnelViaRPC(rpcClient, stopApp, stopPort) {
+		if tryStopTunnelViaRPC(rpcClient, serviceName) {
 			// RPC 调用成功，直接返回
 			return
 		}
 
 		// RPC 连接失败，回退到原有逻辑
 		log.Printf("Failed to connect to costrict server via RPC, falling back to local tunnel management")
-		tunnelSvc := services.GetTunnelManager()
-		if err := tunnelSvc.CloseTunnel(stopApp, stopPort); err != nil {
-			log.Fatalf("Failed to stop %s tunnel: %v", stopApp, err)
+		service := services.GetServiceManager()
+		svc := service.GetInstance(serviceName)
+		if svc == nil {
+			log.Fatalf("Failed to close '%s' tunnel", serviceName)
 		}
+		svc.CloseTunnel()
 
-		fmt.Printf("Successfully stopped tunnel for app %s", stopApp)
+		fmt.Printf("Successfully close tunnel for service '%s'", serviceName)
 	},
 }
 
-// tryStopTunnelViaRPC 尝试通过 RPC 连接停止隧道
 /**
- * Try to stop tunnel via RPC connection to costrict server
+ * Try to close tunnel via RPC connection to costrict server
  * @param {rpc.HTTPClient} rpcClient - RPC client instance
- * @param {string} appName - Application name
+ * @param {string} serviceName - Application name
  * @param {int} port - Port number for tunnel
  * @returns {bool} True if RPC call succeeded, false otherwise
  * @description
  * - Attempts to connect to costrict server via Unix socket
- * - Calls DELETE /costrict/api/v1/tunnels/{app}/{port} endpoint to stop tunnel
+ * - Calls DELETE /costrict/api/v1/tunnels/{app}/{port} endpoint to close tunnel
  * - Handles connection errors and API response errors
  * - Returns success/failure status for fallback logic
  * @throws
@@ -63,12 +61,12 @@ var stopCmd = &cobra.Command{
  *     fmt.Println("Tunnel stopped via RPC")
  * }
  */
-func tryStopTunnelViaRPC(rpcClient rpc.HTTPClient, appName string, port int) bool {
+func tryStopTunnelViaRPC(rpcClient rpc.HTTPClient, serviceName string) bool {
 	// 构建 API 路径，包含应用名称和端口参数
-	path := fmt.Sprintf("/costrict/api/v1/tunnels/%s/%d", appName, port)
+	path := fmt.Sprintf("/costrict/api/v1/services/%s/close", serviceName)
 
 	// 尝试调用 costrict 的 RESTful API DELETE 方法
-	response, err := rpcClient.Delete(path, nil)
+	response, err := rpcClient.Post(path, nil)
 	if err != nil {
 		log.Printf("Failed to call costrict API: %v", err)
 		return false
@@ -106,8 +104,5 @@ func tryStopTunnelViaRPC(rpcClient rpc.HTTPClient, appName string, port int) boo
 }
 
 func init() {
-	stopCmd.Flags().SortFlags = false
-	stopCmd.Flags().StringVarP(&stopApp, "app", "a", "", "App name")
-	stopCmd.Flags().IntVarP(&stopPort, "port", "p", 0, "Port number")
-	tunnelCmd.AddCommand(stopCmd)
+	serviceCmd.AddCommand(closeCmd)
 }

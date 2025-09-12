@@ -11,7 +11,7 @@ import (
 )
 
 var restartCmd = &cobra.Command{
-	Use:   "restart [service name]",
+	Use:   "restart {service-name}",
 	Short: "Restart service",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {

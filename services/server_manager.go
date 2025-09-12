@@ -16,8 +16,6 @@ type Server struct {
 	cfg               *config.AppConfig
 	service           *ServiceManager
 	component         *ComponentManager
-	tunnel            *TunnelManager
-	processor         *ProcessManager
 	startTime         time.Time
 	nextMidnightCheck time.Time
 }
@@ -41,8 +39,6 @@ func NewServer(cfg *config.AppConfig) *Server {
 		cfg:       cfg,
 		service:   GetServiceManager(),
 		component: GetComponentManager(),
-		tunnel:    GetTunnelManager(),
-		processor: GetProcessManager(),
 		startTime: time.Now(),
 	}
 }
@@ -116,10 +112,7 @@ func (s *Server) StartAllService() {
  * }
  */
 func (s *Server) StopAllService(ctx context.Context) {
-	// 停止所有服务
-	s.processor.SetAutoRestart(false)
 	s.service.StopAll()
-	s.tunnel.CloseAll()
 }
 
 /**
@@ -140,8 +133,6 @@ func (s *Server) StartMonitoring() {
 
 	for range ticker.C {
 		s.service.CheckServices()
-		s.tunnel.CheckTunnels()
-		s.processor.CheckProcesses()
 	}
 }
 
@@ -342,61 +333,40 @@ func (s *Server) Check() models.CheckResponse {
 	var serviceResults []models.ServiceCheckResult
 	for _, svc := range s.service.GetInstances(false) {
 		healthy := svc.IsHealthy()
+
+		tunResult := models.TunnelCheckResult{}
+		if svc.tun != nil {
+			tunResult.Pid = svc.tun.Pid
+			tunResult.CreatedTime = svc.tun.CreatedTime.Format(time.RFC3339)
+			tunResult.Status = string(svc.tun.Status)
+			tunResult.Ports = svc.tun.Pairs
+		}
 		serviceResults = append(serviceResults, models.ServiceCheckResult{
-			Name:      svc.Name,
-			Status:    svc.Status,
-			Pid:       svc.Pid,
-			Port:      svc.Port,
-			StartTime: svc.StartTime,
-			Healthy:   healthy,
+			Name:           svc.Name,
+			Status:         svc.Status,
+			Pid:            svc.Pid,
+			Port:           svc.Port,
+			StartTime:      svc.StartTime,
+			Healthy:        healthy,
+			RestartCount:   svc.proc.RestartCount,
+			LastExitTime:   svc.proc.LastExitTime.Format(time.RFC3339),
+			LastExitReason: svc.proc.LastExitReason,
+			ProcessName:    svc.proc.ProcessName,
+			Tunnel:         tunResult,
 		})
 	}
 	response.Services = serviceResults
 
-	// 检查进程
-	s.processor.CheckProcesses()
-	// 获取所有进程实例并转换为检查结果
-	var processResults []models.ProcessCheckResult
-	for _, proc := range s.processor.GetInstances() {
-		processResults = append(processResults, models.ProcessCheckResult{
-			InstanceName:   proc.InstanceName,
-			ProcessName:    proc.ProcessName,
-			Status:         proc.Status,
-			Pid:            proc.Pid,
-			RestartCount:   proc.RestartCount,
-			StartTime:      proc.StartTime.Format(time.RFC3339),
-			LastExitTime:   proc.LastExitTime.Format(time.RFC3339),
-			LastExitReason: proc.LastExitReason,
-			AutoRestart:    proc.AutoRestart,
-		})
-	}
-	response.Processes = processResults
-
-	// 检查隧道
-	s.tunnel.CheckTunnels()
-	var tunnelResults []models.TunnelCheckResult
-	for _, tun := range s.tunnel.ListTunnels() {
-		tunnelResults = append(tunnelResults, models.TunnelCheckResult{
-			Name:        tun.Name,
-			LocalPort:   tun.LocalPort,
-			MappingPort: tun.MappingPort,
-			Status:      string(tun.Status),
-			Pid:         tun.Pid,
-			CreatedTime: tun.CreatedTime.Format(time.RFC3339),
-		})
-	}
-	response.Tunnels = tunnelResults
-
 	// 检查组件
 	upgradesNeeded := s.component.CheckComponents()
 	var components []models.ComponentCheckResult
-	for _, comp := range s.component.GetComponents(true) {
+	for _, cpn := range s.component.GetComponents(true) {
 		components = append(components, models.ComponentCheckResult{
-			Name:          comp.Spec.Name,
-			LocalVersion:  comp.LocalVersion,
-			RemoteVersion: comp.RemoteVersion,
-			Installed:     comp.Installed,
-			NeedUpgrade:   comp.NeedUpgrade,
+			Name:          cpn.Spec.Name,
+			LocalVersion:  cpn.LocalVersion,
+			RemoteVersion: cpn.RemoteVersion,
+			Installed:     cpn.Installed,
+			NeedUpgrade:   cpn.NeedUpgrade,
 		})
 	}
 	response.Components = components
@@ -410,7 +380,7 @@ func (s *Server) Check() models.CheckResponse {
 	}
 
 	// 计算总体状态
-	response.TotalChecks = len(serviceResults) + len(processResults) + len(tunnelResults) + len(components)
+	response.TotalChecks = len(serviceResults) + len(components)
 	response.PassedChecks = 0
 	response.FailedChecks = 0
 
@@ -423,27 +393,9 @@ func (s *Server) Check() models.CheckResponse {
 		}
 	}
 
-	// 统计进程检查结果
-	for _, proc := range processResults {
-		if proc.Status == "running" {
-			response.PassedChecks++
-		} else {
-			response.FailedChecks++
-		}
-	}
-
-	// 统计隧道检查结果
-	for _, tun := range tunnelResults {
-		if tun.Status == "running" {
-			response.PassedChecks++
-		} else {
-			response.FailedChecks++
-		}
-	}
-
 	// 统计组件检查结果
-	for _, comp := range components {
-		if comp.Installed && !comp.NeedUpgrade {
+	for _, cpn := range components {
+		if cpn.Installed && !cpn.NeedUpgrade {
 			response.PassedChecks++
 		} else {
 			response.FailedChecks++
@@ -504,17 +456,14 @@ func (s *Server) GetHealthz() models.HealthResponse {
 
 	// 获取服务统计信息
 	activeServices := 0
+	activeTunnels := 0
 	for _, svc := range s.service.GetInstances(false) {
 		if svc.Status == "running" {
 			activeServices++
-		}
-	}
-
-	// 获取隧道统计信息
-	activeTunnels := 0
-	for _, tun := range s.tunnel.ListTunnels() {
-		if tun.Status == "running" {
-			activeTunnels++
+			tun := svc.GetTunnel()
+			if tun != nil && tun.Status == "running" {
+				activeTunnels += len(tun.Pairs)
+			}
 		}
 	}
 
@@ -522,8 +471,8 @@ func (s *Server) GetHealthz() models.HealthResponse {
 	components := s.component.GetComponents(true)
 	totalComponents := len(components)
 	upgradedComponents := 0
-	for _, comp := range components {
-		if comp.Installed {
+	for _, cpn := range components {
+		if cpn.Installed {
 			upgradedComponents++
 		}
 	}

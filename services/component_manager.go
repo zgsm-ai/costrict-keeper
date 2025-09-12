@@ -48,11 +48,11 @@ func GetComponentManager() *ComponentManager {
 		ci := ComponentInstance{
 			Spec: cpn,
 		}
-		fetchComponentInfo(&ci)
+		ci.fetchComponentInfo()
 		componentManager.components[cpn.Name] = &ci
 	}
 	componentManager.self.Spec = config.Spec().Manager.Component
-	fetchComponentInfo(&componentManager.self)
+	componentManager.self.fetchComponentInfo()
 	return componentManager
 }
 
@@ -72,7 +72,7 @@ func GetComponentManager() *ComponentManager {
  * - Version comparison errors
  * @private
  */
-func fetchComponentInfo(ci *ComponentInstance) error {
+func (ci *ComponentInstance) fetchComponentInfo() error {
 	sysConfig := config.Get()
 	cfg := utils.UpgradeConfig{
 		PackageName: ci.Spec.Name,
@@ -81,7 +81,8 @@ func fetchComponentInfo(ci *ComponentInstance) error {
 		BaseUrl:     sysConfig.Cloud.UpgradeUrl,
 	}
 	cfg.Correct()
-
+	ci.NeedUpgrade = false
+	ci.Installed = false
 	local, err := utils.GetLocalVersion(cfg)
 	if err == nil {
 		ci.localVersion = local
@@ -101,30 +102,6 @@ func fetchComponentInfo(ci *ComponentInstance) error {
 }
 
 /**
-* Upgrade specified component to latest version
-* @param {string} name - Name of the component to upgrade
-* @returns {error} Returns error if upgrade fails, nil on success
-* @description
-* - Finds service configuration by component name
-* - Parses highest version from service configuration
-* - Executes upgrade function with component configuration
-* @throws
-* - Service not found errors
-* - Version parsing errors
-* - Upgrade execution errors
- */
-func (cm *ComponentManager) UpgradeComponent(name string) error {
-	component, ok := cm.components[name]
-	if !ok {
-		return fmt.Errorf("component %s not found", name)
-	}
-	if !component.NeedUpgrade {
-		return nil
-	}
-	return cm.upgradeComponent(component)
-}
-
-/**
  * Upgrade component to latest version
  * @param {ComponentInstance} component - Component instance to upgrade
  * @returns {error} Returns error if upgrade fails, nil on success
@@ -139,33 +116,80 @@ func (cm *ComponentManager) UpgradeComponent(name string) error {
  * - Configuration errors
  * @private
  */
-func (cm *ComponentManager) upgradeComponent(component *ComponentInstance) error {
+func (ci *ComponentInstance) upgradeComponent() error {
 	// 解析版本号 - 由于新结构体中没有版本信息，使用默认版本
 	upgradeCfg := utils.UpgradeConfig{
-		PackageName: component.Spec.Name,
+		PackageName: ci.Spec.Name,
 		BaseUrl:     config.Get().Cloud.UpgradeUrl,
 	}
-	if component.Spec.InstallDir != "" {
-		upgradeCfg.InstallDir = filepath.Join(env.CostrictDir, component.Spec.InstallDir)
+	if ci.Spec.InstallDir != "" {
+		upgradeCfg.InstallDir = filepath.Join(env.CostrictDir, ci.Spec.InstallDir)
 	}
 	upgradeCfg.Correct()
 
 	retVer, upgraded, err := utils.UpgradePackage(upgradeCfg, nil)
 	if err != nil {
-		logger.Errorf("The '%s' upgrade failed: %v", component.Spec.Name, err)
+		logger.Errorf("The '%s' upgrade failed: %v", ci.Spec.Name, err)
 		return err
 	}
-	component.localVersion = retVer
-	component.remoteVerion = retVer
-	component.RemoteVersion = utils.PrintVersion(retVer)
-	component.LocalVersion = component.RemoteVersion
+	ci.localVersion = retVer
+	ci.remoteVerion = retVer
+	ci.RemoteVersion = utils.PrintVersion(retVer)
+	ci.LocalVersion = ci.RemoteVersion
 
 	if !upgraded {
-		logger.Infof("The '%s' version is up to date\n", component.Spec.Name)
+		logger.Infof("The '%s' version is up to date\n", ci.Spec.Name)
 	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", component.Spec.Name, component.RemoteVersion)
+		logger.Infof("The '%s' is upgraded to version %s\n", ci.Spec.Name, ci.RemoteVersion)
 	}
 	return err
+}
+
+/**
+ * Remove specified component
+ */
+func (ci *ComponentInstance) removeComponent() error {
+	// Check if component is installed
+	if !ci.Installed {
+		return fmt.Errorf("component '%s' is not installed", ci.Spec.Name)
+	}
+	// Remove the package
+	if err := utils.RemovePackage(env.CostrictDir, ci.Spec.Name); err != nil {
+		return fmt.Errorf("failed to remove component %s: %v", ci.Spec.Name, err)
+	}
+
+	// Update component state
+	ci.Installed = false
+	ci.NeedUpgrade = false
+	ci.LocalVersion = ""
+	ci.localVersion = utils.VersionNumber{}
+
+	logger.Infof("Component '%s' removed successfully", ci.Spec.Name)
+	return nil
+}
+
+/**
+* Upgrade specified component to latest version
+* @param {string} name - Name of the component to upgrade
+* @returns {error} Returns error if upgrade fails, nil on success
+* @description
+* - Finds service configuration by component name
+* - Parses highest version from service configuration
+* - Executes upgrade function with component configuration
+* @throws
+* - Service not found errors
+* - Version parsing errors
+* - Upgrade execution errors
+ */
+func (cm *ComponentManager) UpgradeComponent(name string) error {
+	cpn, ok := cm.components[name]
+	if !ok {
+		return fmt.Errorf("component %s not found", name)
+	}
+	if !cpn.NeedUpgrade {
+		return nil
+	}
+	return cpn.upgradeComponent()
 }
 
 /**
@@ -182,28 +206,11 @@ func (cm *ComponentManager) upgradeComponent(component *ComponentInstance) error
 * - Package removal errors
  */
 func (cm *ComponentManager) RemoveComponent(name string) error {
-	component, ok := cm.components[name]
+	cpn, ok := cm.components[name]
 	if !ok {
 		return fmt.Errorf("component %s not found", name)
 	}
-
-	// Check if component is installed
-	if !component.Installed {
-		return fmt.Errorf("component %s is not installed", name)
-	}
-	// Remove the package
-	if err := utils.RemovePackage(env.CostrictDir, name); err != nil {
-		return fmt.Errorf("failed to remove component %s: %v", name, err)
-	}
-
-	// Update component state
-	component.Installed = false
-	component.LocalVersion = ""
-	component.localVersion = utils.VersionNumber{}
-	component.NeedUpgrade = false
-
-	logger.Infof("Component '%s' removed successfully", name)
-	return nil
+	return cpn.removeComponent()
 }
 
 /**
@@ -259,11 +266,11 @@ func (cm *ComponentManager) GetSelf() *ComponentInstance {
  * }
  */
 func (cm *ComponentManager) GetComponent(name string) *ComponentInstance {
-	component, ok := cm.components[name]
+	cpn, ok := cm.components[name]
 	if !ok {
 		return nil
 	}
-	return component
+	return cpn
 }
 
 /**
@@ -284,7 +291,7 @@ func (cm *ComponentManager) GetComponent(name string) *ComponentInstance {
 func (cm *ComponentManager) UpgradeAll() error {
 	for _, cpn := range cm.components {
 		if cpn.NeedUpgrade {
-			cm.upgradeComponent(cpn)
+			cpn.upgradeComponent()
 		}
 	}
 	utils.CleanupOldVersions("")
@@ -308,20 +315,20 @@ func (cm *ComponentManager) CheckComponents() int {
 
 	upgradeCount := 0
 	components := []*ComponentInstance{}
-	for _, component := range cm.components {
-		components = append(components, component)
+	for _, cpn := range cm.components {
+		components = append(components, cpn)
 	}
 	components = append(components, &cm.self)
-	for _, component := range components {
+	for _, cpn := range components {
 		// Refresh component information to get latest version
-		if err := fetchComponentInfo(component); err != nil {
-			logger.Errorf("Failed to fetch component info for %s: %v", component.Spec.Name, err)
+		if err := cpn.fetchComponentInfo(); err != nil {
+			logger.Errorf("Failed to fetch component info for %s: %v", cpn.Spec.Name, err)
 			continue
 		}
 		// Check if upgrade is needed
-		if component.NeedUpgrade {
+		if cpn.NeedUpgrade {
 			logger.Infof("Component %s needs upgrade from %s to %s",
-				component.Spec.Name, component.LocalVersion, component.RemoteVersion)
+				cpn.Spec.Name, cpn.LocalVersion, cpn.RemoteVersion)
 			upgradeCount++
 		}
 	}

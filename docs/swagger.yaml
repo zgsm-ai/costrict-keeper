@@ -1,27 +1,183 @@
 basePath: /
 definitions:
-  models.ComponentInfo:
+  models.CheckResponse:
+    description: 系统检查API响应数据结构
+    properties:
+      components:
+        items:
+          $ref: '#/definitions/models.ComponentCheckResult'
+        type: array
+      failedChecks:
+        example: 2
+        type: integer
+      midnightRooster:
+        $ref: '#/definitions/models.MidnightRoosterCheckResult'
+      overallStatus:
+        example: healthy
+        type: string
+      passedChecks:
+        example: 8
+        type: integer
+      services:
+        items:
+          $ref: '#/definitions/models.ServiceCheckResult'
+        type: array
+      timestamp:
+        example: "2024-01-01T10:00:00Z"
+        type: string
+      totalChecks:
+        example: 10
+        type: integer
+    type: object
+  models.ComponentCheckResult:
+    description: 组件状态检查结果
     properties:
       installed:
+        example: true
         type: boolean
-      name:
+      localVersion:
+        example: 1.0.0
         type: string
-      version:
+      name:
+        example: costrict
+        type: string
+      needUpgrade:
+        example: true
+        type: boolean
+      remoteVersion:
+        example: 1.1.0
         type: string
     type: object
-  models.CreateTunnelRequest:
+  models.ComponentSpecification:
     properties:
-      app:
-        description: application name(path parameter)
+      install_dir:
         type: string
-      port:
-        description: port number(query parameter)
-        type: integer
+      name:
+        type: string
+      upgrade:
+        $ref: '#/definitions/models.UpgradeSpecification'
+      version:
+        type: string
     type: object
   models.ErrorResponse:
     properties:
       error:
         type: string
+    type: object
+  models.HealthResponse:
+    description: 健康检查API响应数据结构
+    properties:
+      metrics:
+        $ref: '#/definitions/models.Metrics'
+      startTime:
+        example: "2024-01-01T10:00:00Z"
+        type: string
+      status:
+        example: UP
+        type: string
+      uptime:
+        example: 1h30m45s
+        type: string
+      version:
+        example: 1.0.0
+        type: string
+    type: object
+  models.Metrics:
+    description: 系统关键指标数据结构
+    properties:
+      activeServices:
+        example: 3
+        type: integer
+      activeTunnels:
+        example: 2
+        type: integer
+      errorRequests:
+        example: 5
+        type: integer
+      totalComponents:
+        type: integer
+      totalRequests:
+        example: 1000
+        type: integer
+      upgradedComponents:
+        example: 4
+        type: integer
+    type: object
+  models.MidnightRoosterCheckResult:
+    description: 半夜鸡叫自动升级检查结果
+    properties:
+      componentsCount:
+        example: 5
+        type: integer
+      lastCheckTime:
+        example: "2024-01-01T03:30:00Z"
+        type: string
+      nextCheckTime:
+        example: "2024-01-02T03:30:00Z"
+        type: string
+      status:
+        example: active
+        type: string
+      upgradesNeeded:
+        example: 2
+        type: integer
+    type: object
+  models.PortPair:
+    properties:
+      localPort:
+        description: local port
+        type: integer
+      mappingPort:
+        description: mapping port to cloud
+        type: integer
+    type: object
+  models.RunStatus:
+    enum:
+    - exited
+    - running
+    - stopped
+    - error
+    type: string
+    x-enum-varnames:
+    - StatusExited
+    - StatusRunning
+    - StatusStopped
+    - StatusError
+  models.ServiceCheckResult:
+    description: 服务健康状态检查结果
+    properties:
+      healthy:
+        example: true
+        type: boolean
+      lastExitReason:
+        example: exited normally
+        type: string
+      lastExitTime:
+        example: "2024-01-01T09:00:00Z"
+        type: string
+      name:
+        example: costrict
+        type: string
+      pid:
+        example: 1234
+        type: integer
+      port:
+        example: 8080
+        type: integer
+      processName:
+        example: costrict
+        type: string
+      restartCount:
+        example: 0
+        type: integer
+      startTime:
+        example: "2024-01-01T10:00:00Z"
+        type: string
+      status:
+        example: running
+        type: string
+      tunnel:
+        $ref: '#/definitions/models.TunnelCheckResult'
     type: object
   models.ServiceSpecification:
     properties:
@@ -46,33 +202,19 @@ definitions:
       startup:
         type: string
     type: object
-  models.Tunnel:
+  models.TunnelCheckResult:
+    description: 隧道状态检查结果
     properties:
       createdTime:
-        description: creation time
-        type: string
-      localPort:
-        description: local port
-        type: integer
-      mappingPort:
-        description: mapping port to cloud
-        type: integer
-      name:
-        description: service name
         type: string
       pid:
-        description: process ID of the tunnel
         type: integer
-      protocol:
-        description: protocol type(http/https)
-        type: string
+      ports:
+        items:
+          $ref: '#/definitions/models.PortPair'
+        type: array
       status:
-        allOf:
-        - $ref: '#/definitions/models.TunnelStatus'
-        description: tunnel status(running/stopped/error)
-      temporary:
-        description: delete after the tunnel stops
-        type: boolean
+        type: string
     type: object
   models.TunnelResponse:
     properties:
@@ -86,16 +228,112 @@ definitions:
         description: operation status
         type: string
     type: object
-  models.TunnelStatus:
-    enum:
-    - running
-    - stopped
-    - error
-    type: string
-    x-enum-varnames:
-    - StatusRunning
-    - StatusStopped
-    - StatusError
+  models.UpgradeSpecification:
+    properties:
+      highest:
+        type: string
+      lowest:
+        type: string
+      mode:
+        type: string
+    type: object
+  services.ComponentInstance:
+    properties:
+      installed:
+        type: boolean
+      local_version:
+        type: string
+      need_upgrade:
+        type: boolean
+      remote_version:
+        type: string
+      spec:
+        $ref: '#/definitions/models.ComponentSpecification'
+    type: object
+  services.ProcessInstance:
+    properties:
+      args:
+        items:
+          type: string
+        type: array
+      command:
+        type: string
+      instanceName:
+        type: string
+      lastExitReason:
+        type: string
+      lastExitTime:
+        type: string
+      maxRestartCount:
+        type: integer
+      pid:
+        type: integer
+      processName:
+        type: string
+      restartCount:
+        type: integer
+      startTime:
+        type: string
+      status:
+        type: string
+      workDir:
+        type: string
+    type: object
+  services.ServiceDetail:
+    properties:
+      component:
+        $ref: '#/definitions/services.ComponentInstance'
+      name:
+        type: string
+      pid:
+        type: integer
+      port:
+        type: integer
+      process:
+        $ref: '#/definitions/services.ProcessInstance'
+      spec:
+        $ref: '#/definitions/models.ServiceSpecification'
+      startTime:
+        type: string
+      status:
+        type: string
+      tunnel:
+        $ref: '#/definitions/services.TunnelInstance'
+    type: object
+  services.ServiceInstance:
+    properties:
+      name:
+        type: string
+      pid:
+        type: integer
+      port:
+        type: integer
+      startTime:
+        type: string
+      status:
+        type: string
+    type: object
+  services.TunnelInstance:
+    properties:
+      createdTime:
+        description: creation time
+        type: string
+      name:
+        description: service name
+        type: string
+      pairs:
+        description: Port pairs
+        items:
+          $ref: '#/definitions/models.PortPair'
+        type: array
+      pid:
+        description: process ID of the tunnel
+        type: integer
+      status:
+        allOf:
+        - $ref: '#/definitions/models.RunStatus'
+        description: tunnel status(running/stopped/error/exited)
+    type: object
 host: localhost:8999
 info:
   contact:
@@ -110,6 +348,40 @@ info:
   title: Costrict Keeper API
   version: "1.0"
 paths:
+  /costrict/api/v1/check:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        立即执行各项检查，包括服务健康状态、进程状态、隧道状态、组件更新状态和半夜鸡叫自动升级检查机制
+        返回详细的检查结果，包括各项服务的运行状态、进程信息、隧道连接状态、组件版本信息以及系统总体健康状态
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: '示例响应：{\n  \"timestamp\": \"2024-01-01T10:00:00Z\",\n  \"services\":
+            [{\n    \"name\": \"costrict\",\n    \"status\": \"running\",\n    \"pid\":
+            1234,\n    \"port\": 8080,\n    \"startTime\": \"2024-01-01T09:00:00Z\",\n    \"healthy\":
+            true\n  }],\n  \"processes\": [],\n  \"tunnels\": [{\n    \"name\": \"myapp\",\n    \"localPort\":
+            8080,\n    \"mappingPort\": 30001,\n    \"status\": \"running\",\n    \"pid\":
+            1235,\n    \"createdTime\": \"2024-01-01T09:00:00Z\"\n  }],\n  \"components\":
+            [{\n    \"name\": \"costrict\",\n    \"localVersion\": \"1.0.0\",\n    \"remoteVersion\":
+            \"1.1.0\",\n    \"installed\": true,\n    \"needUpgrade\": true\n  }],\n  \"midnightRooster\":
+            {\n    \"status\": \"active\",\n    \"nextCheckTime\": \"2024-01-02T03:30:00Z\",\n    \"lastCheckTime\":
+            \"2024-01-01T03:30:00Z\",\n    \"componentsCount\": 5,\n    \"upgradesNeeded\":
+            2\n  },\n  \"overallStatus\": \"warning\",\n  \"totalChecks\": 4,\n  \"passedChecks\":
+            3,\n  \"failedChecks\": 1\n}'
+          schema:
+            $ref: '#/definitions/models.CheckResponse'
+        "500":
+          description: '示例错误响应：{\n  \"code\": \"system.check_failed\",\n  \"message\":
+            \"Failed to perform system check: timeout error\"\n}'
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 执行系统检查
+      tags:
+      - System
   /costrict/api/v1/components:
     get:
       description: 获取所有已安装组件信息
@@ -120,7 +392,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/models.ComponentInfo'
+              $ref: '#/definitions/services.ComponentInstance'
             type: array
       summary: 获取组件列表
       tags:
@@ -192,227 +464,247 @@ paths:
       - Config
   /costrict/api/v1/services:
     get:
-      description: 获取当前管理的所有服务信息
+      consumes:
+      - application/json
+      description: Get list of all managed services with their current status
       produces:
       - application/json
       responses:
         "200":
-          description: OK
+          description: List of service instances
           schema:
             items:
-              $ref: '#/definitions/models.ServiceSpecification'
+              $ref: '#/definitions/services.ServiceInstance'
             type: array
-      summary: 获取服务列表
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List all services
       tags:
       - Services
   /costrict/api/v1/services/{name}:
     get:
-      description: 根据服务名获取指定服务的详细信息
+      consumes:
+      - application/json
+      description: Get detailed information of a specific service by its name
       parameters:
-      - description: 服务名称
+      - description: Service name
         in: path
         name: name
         required: true
         type: string
+      produces:
+      - application/json
       responses:
         "200":
-          description: OK
+          description: Service detail information
           schema:
-            $ref: '#/definitions/models.ServiceSpecification'
+            $ref: '#/definitions/services.ServiceDetail'
         "404":
-          description: Not Found
+          description: Service not found error response
           schema:
-            additionalProperties: true
-            type: object
-      summary: 获取服务信息
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get service information
+      tags:
+      - Services
+  /costrict/api/v1/services/{name}/close:
+    post:
+      consumes:
+      - application/json
+      description: Close the reverse tunnel for the specified service to disable remote
+        access
+      parameters:
+      - description: Service name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tunnel close operation success response
+          schema:
+            $ref: '#/definitions/models.TunnelResponse'
+        "404":
+          description: Service not found error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Close reverse tunnel for service
+      tags:
+      - Services
+  /costrict/api/v1/services/{name}/open:
+    post:
+      consumes:
+      - application/json
+      description: Create a reverse tunnel for the specified service to enable remote
+        access
+      parameters:
+      - description: Service name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tunnel information with port mappings and status
+          schema:
+            $ref: '#/definitions/services.TunnelInstance'
+        "404":
+          description: Service not found error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Create reverse tunnel for service
+      tags:
+      - Services
+  /costrict/api/v1/services/{name}/reopen:
+    post:
+      consumes:
+      - application/json
+      description: Restart the reverse tunnel for the specified service to refresh
+        connection and port mapping
+      parameters:
+      - description: Service name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tunnel restart operation success response
+          schema:
+            $ref: '#/definitions/models.TunnelResponse'
+        "404":
+          description: Service not found error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Restart reverse tunnel for service
       tags:
       - Services
   /costrict/api/v1/services/{name}/restart:
     post:
-      description: 根据服务名重启指定服务
+      consumes:
+      - application/json
+      description: Restart a specific service by its name
       parameters:
-      - description: 服务名称
+      - description: Service name
         in: path
         name: name
         required: true
         type: string
+      produces:
+      - application/json
       responses:
         "200":
-          description: OK
+          description: Service restart success response
           schema:
             additionalProperties: true
             type: object
         "404":
-          description: Not Found
+          description: Service not found error response
           schema:
-            additionalProperties: true
-            type: object
-      summary: 重启服务
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Restart service
       tags:
       - Services
   /costrict/api/v1/services/{name}/start:
     post:
-      description: 根据服务名启动指定服务
+      consumes:
+      - application/json
+      description: Start a specific service by its name
       parameters:
-      - description: 服务名称
+      - description: Service name
         in: path
         name: name
         required: true
         type: string
+      produces:
+      - application/json
       responses:
         "200":
-          description: OK
+          description: Service start success response
           schema:
             additionalProperties: true
             type: object
         "404":
-          description: Not Found
+          description: Service not found error response
           schema:
-            additionalProperties: true
-            type: object
-      summary: 启动服务
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Start service
       tags:
       - Services
   /costrict/api/v1/services/{name}/stop:
     post:
-      description: 根据服务名停止指定服务
+      consumes:
+      - application/json
+      description: Stop a specific service by its name
       parameters:
-      - description: 服务名称
+      - description: Service name
         in: path
         name: name
         required: true
         type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Service stop success response
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Service not found error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error response
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Stop service
+      tags:
+      - Services
+  /healthz:
+    get:
+      description: 检查服务是否已经做好准备，返回服务版本、启动时间、健康状态和关键指标统计结果
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties: true
-            type: object
-      summary: 停止服务
+            $ref: '#/definitions/models.HealthResponse'
+      summary: 业务就绪探针
       tags:
-      - Services
-  /costrict/api/v1/tunnels:
-    get:
-      consumes:
-      - application/json
-      description: Get list of all active tunnels
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Tunnel list response
-          schema:
-            items:
-              $ref: '#/definitions/models.Tunnel'
-            type: array
-        "500":
-          description: Internal server error response
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: List all tunnels
-      tags:
-      - Tunnels
-    post:
-      consumes:
-      - application/json
-      description: Create reverse tunnel for specified application
-      parameters:
-      - description: Create tunnel request parameters
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/models.CreateTunnelRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Tunnel  creation
-          schema:
-            $ref: '#/definitions/models.Tunnel'
-        "400":
-          description: Invalid parameter error response
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Tunnel creation failure error response
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Create reverse tunnel
-      tags:
-      - Tunnels
-  /costrict/api/v1/tunnels/{app}/{port}:
-    delete:
-      consumes:
-      - application/json
-      description: Close reverse tunnel for specified application
-      parameters:
-      - description: Application name
-        in: path
-        name: app
-        required: true
-        type: string
-      - description: Port number
-        in: path
-        name: port
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Tunnel close success response
-          schema:
-            $ref: '#/definitions/models.TunnelResponse'
-        "400":
-          description: Invalid parameter error response
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Tunnel close failure error response
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Close reverse tunnel
-      tags:
-      - Tunnels
-    get:
-      consumes:
-      - application/json
-      description: Get details of specified tunnel
-      parameters:
-      - description: Application name
-        in: path
-        name: app
-        required: true
-        type: string
-      - description: Port number
-        in: path
-        name: port
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Tunnel details response
-          schema:
-            $ref: '#/definitions/models.Tunnel'
-        "404":
-          description: Tunnel not found error response
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Internal server error response
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Get tunnel info
-      tags:
-      - Tunnels
+      - System
 securityDefinitions:
   ApiKeyAuth:
     in: header

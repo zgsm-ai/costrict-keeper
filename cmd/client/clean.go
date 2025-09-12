@@ -58,11 +58,7 @@ func cleanAll() error {
 	stopAllServices()
 	fmt.Println("All services stopped successfully")
 
-	// 2. 终止所有隧道
-	closeAllTunnels()
-	fmt.Println("All tunnels closed successfully")
-
-	// 3. 杀死所有组件/服务的进程
+	// 2. 杀死所有组件/服务的进程
 	targetProcesses := []string{"costrict"}
 	for _, svc := range config.Spec().Components {
 		targetProcesses = append(targetProcesses, svc.Name)
@@ -73,7 +69,7 @@ func cleanAll() error {
 	}
 	fmt.Println("Specified processes killed successfully")
 
-	// 4. 清理.costrict目录下的cache目录
+	// 3. 清理.costrict目录下的cache目录
 	if err := cleanCacheDirectory(); err != nil {
 		logger.Errorf("Failed to clean cache directory: %v", err)
 		return fmt.Errorf("failed to clean cache directory: %v", err)
@@ -95,24 +91,7 @@ func cleanAll() error {
 func stopAllServices() {
 	logger.Info("Stopping all services...")
 	serviceManager := services.GetServiceManager()
-	services.GetProcessManager().SetAutoRestart(false)
 	serviceManager.StopAll()
-}
-
-/**
- * Close all active tunnels
- * @returns {error} Returns error if tunnel closing fails, nil on success
- * @description
- * - Gets tunnel manager instance
- * - Calls CloseAll to close all tunnels
- * @throws
- * - Tunnel manager access errors
- * - Tunnel close errors
- */
-func closeAllTunnels() {
-	logger.Info("Closing all tunnels...")
-	tunnelManager := services.GetTunnelManager()
-	tunnelManager.CloseAll()
 }
 
 /**

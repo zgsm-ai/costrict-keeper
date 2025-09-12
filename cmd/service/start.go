@@ -13,7 +13,7 @@ import (
 )
 
 var startCmd = &cobra.Command{
-	Use:   "start [service name]",
+	Use:   "start {service-name}",
 	Short: "Start service",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {

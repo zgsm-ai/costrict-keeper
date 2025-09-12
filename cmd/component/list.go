@@ -105,27 +105,27 @@ func listAllComponents() error {
  */
 func listSpecificComponent(name string) error {
 	manager := services.GetComponentManager()
-	component := manager.GetSelf()
+	cpn := manager.GetSelf()
 	if name != services.COSTRICT_NAME {
-		component = manager.GetComponent(name)
-		if component == nil {
+		cpn = manager.GetComponent(name)
+		if cpn == nil {
 			fmt.Printf("Component named '%s' not found\n", name)
 			return os.ErrNotExist
 		}
 	}
-	spec := &component.Spec
+	spec := &cpn.Spec
 	fmt.Printf("=== Detailed information of component '%s' ===\n", name)
 	fmt.Printf("Name: %s\n", name)
-	fmt.Printf("Need upgrade: %v\n", component.NeedUpgrade)
+	fmt.Printf("Need upgrade: %v\n", cpn.NeedUpgrade)
 
 	// Display version information
-	if component.LocalVersion != "" {
-		fmt.Printf("Local version: %s\n", component.LocalVersion)
+	if cpn.LocalVersion != "" {
+		fmt.Printf("Local version: %s\n", cpn.LocalVersion)
 	} else {
 		fmt.Printf("Local version: Not installed\n")
 	}
-	if component.RemoteVersion != "" {
-		fmt.Printf("Latest server version: %s\n", component.RemoteVersion)
+	if cpn.RemoteVersion != "" {
+		fmt.Printf("Latest server version: %s\n", cpn.RemoteVersion)
 	} else {
 		fmt.Printf("Latest server version: Unable to retrieve\n")
 	}

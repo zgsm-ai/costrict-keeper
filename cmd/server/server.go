@@ -93,9 +93,6 @@ func startServer(ctx context.Context) error {
 	componentController := controllers.NewComponentController(svc.Components())
 	componentController.RegisterRoutes(router)
 
-	tunnelController := controllers.NewTunnelController()
-	tunnelController.RegisterRoutes(router)
-
 	// Register swagger routes
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 

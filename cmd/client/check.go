@@ -184,7 +184,14 @@ func displayCheckResults(results models.CheckResponse) {
 			if svc.Port > 0 {
 				fmt.Printf(" 端口: %d", svc.Port)
 			}
+			if svc.RestartCount > 0 {
+				fmt.Printf(" 重启次数: %d", svc.RestartCount)
+			}
 			fmt.Printf(" 状态: %s", svc.Status)
+			fmt.Printf(" 隧道: %d, %s", len(svc.Tunnel.Ports), svc.Tunnel.Status)
+			for _, tun := range svc.Tunnel.Ports {
+				fmt.Printf(" (本地端口: %d -> 映射端口: %d)", tun.LocalPort, tun.MappingPort)
+			}
 			if svc.Healthy {
 				fmt.Printf(" 健康")
 			} else {
@@ -195,57 +202,20 @@ func displayCheckResults(results models.CheckResponse) {
 		fmt.Println()
 	}
 
-	// Display processes
-	if len(results.Processes) > 0 {
-		fmt.Printf("=== 进程检查结果 (%d 项) ===\n", len(results.Processes))
-		for _, proc := range results.Processes {
-			statusIcon := "✅"
-			if proc.Status != "running" {
-				statusIcon = "❌"
-			}
-
-			fmt.Printf("%s %s", statusIcon, proc.ProcessName)
-			if proc.Pid > 0 {
-				fmt.Printf(" (PID: %d)", proc.Pid)
-			}
-			fmt.Printf(" 状态: %s", proc.Status)
-			if proc.RestartCount > 0 {
-				fmt.Printf(" 重启次数: %d", proc.RestartCount)
-			}
-			fmt.Println()
-		}
-		fmt.Println()
-	}
-
-	// Display tunnels
-	if len(results.Tunnels) > 0 {
-		fmt.Printf("=== 隧道检查结果 (%d 项) ===\n", len(results.Tunnels))
-		for _, tun := range results.Tunnels {
-			statusIcon := "✅"
-			if tun.Status != "running" {
-				statusIcon = "❌"
-			}
-
-			fmt.Printf("%s %s (本地端口: %d -> 映射端口: %d) 状态: %s\n",
-				statusIcon, tun.Name, tun.LocalPort, tun.MappingPort, tun.Status)
-		}
-		fmt.Println()
-	}
-
 	// Display components
 	if len(results.Components) > 0 {
 		fmt.Printf("=== 组件检查结果 (%d 项) ===\n", len(results.Components))
-		for _, comp := range results.Components {
+		for _, cpn := range results.Components {
 			statusIcon := "✅"
-			if !comp.Installed || comp.NeedUpgrade {
+			if !cpn.Installed || cpn.NeedUpgrade {
 				statusIcon = "❌"
 			}
 
-			fmt.Printf("%s %s", statusIcon, comp.Name)
-			if comp.Installed {
-				fmt.Printf(" (本地版本: %s", comp.LocalVersion)
-				if comp.NeedUpgrade {
-					fmt.Printf(" -> 远程版本: %s) 需要升级", comp.RemoteVersion)
+			fmt.Printf("%s %s", statusIcon, cpn.Name)
+			if cpn.Installed {
+				fmt.Printf(" (本地版本: %s", cpn.LocalVersion)
+				if cpn.NeedUpgrade {
+					fmt.Printf(" -> 远程版本: %s) 需要升级", cpn.RemoteVersion)
 				} else {
 					fmt.Printf(") 已安装")
 				}
