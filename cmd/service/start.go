@@ -128,11 +128,11 @@ func startCostrict() error {
 	utils.SetNewPG(cmd)
 
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("Failed to start process '%s': %v\n", proc.InstanceName, err)
+		fmt.Printf("Failed to start process '%s': %v\n", proc.Title, err)
 		return err
 	}
 
-	fmt.Printf("Process '%s' started (PID: %d)\n", proc.InstanceName, cmd.Process.Pid)
+	fmt.Printf("Process '%s' started (PID: %d)\n", proc.Title, cmd.Process.Pid)
 	return nil
 }
 

@@ -4,7 +4,10 @@ package utils
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -143,4 +146,67 @@ func IsProcessRunning(pid int) (bool, error) {
 
 func GetProcessName(pid int) (string, error) {
 	return getProcessName(uint32(pid))
+}
+
+/**
+ * Kill processes on Windows system
+ * @param {string} processName - Name of the process to kill
+ * @returns {error} Returns error if process killing fails, nil on success
+ * @description
+ * - Uses tasklist command to enumerate processes
+ * - Parses output to find target process PIDs
+ * - Kills each found process using taskkill command
+ * @throws
+ * - Command execution errors
+ * - Process kill errors
+ */
+func killSpecifiedProcess(processName string) error {
+	// 使用Windows API实现进程查找和杀死
+	// 这里使用更高效的方法，直接调用系统API而不是外部命令
+
+	// 获取所有进程ID和对应的进程名
+	// 由于Windows API限制，我们需要使用其他方法来枚举进程
+	// 这里使用tasklist命令作为备用方案
+	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s*", processName), "/FO", "CSV", "/NH")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to list processes for %s: %v", processName, err)
+	}
+
+	// 解析输出，获取PID
+	lines := strings.Split(string(output), "\n")
+	selfPid := os.Getpid()
+
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// CSV格式: "进程名","PID","会话名","会话#","内存使用"
+		fields := strings.Split(line, "\",\"")
+		if len(fields) >= 2 {
+			// 移除引号
+			procName := strings.Trim(fields[0], "\"")
+			pidStr := strings.Trim(fields[1], "\"")
+
+			// 检查进程名是否匹配
+			if strings.Contains(strings.ToLower(procName), strings.ToLower(processName)) {
+				pid, err := strconv.Atoi(pidStr)
+				if err != nil {
+					continue
+				}
+				if pid == selfPid {
+					continue
+				}
+
+				// 使用Windows API杀死进程
+				if err := KillProcessByPID(pid); err != nil {
+					fmt.Printf("Failed to kill process %s (PID: %d): %v\n", procName, pid, err)
+				} else {
+					fmt.Printf("Successfully killed process %s (PID: %d)\n", procName, pid)
+				}
+			}
+		}
+	}
+	return nil
 }

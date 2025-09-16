@@ -88,7 +88,7 @@ func showAllServicesStatus(manager *services.ServiceManager) error {
 		row.Protocol = svc.Spec.Protocol
 		row.Port = svc.Port
 		row.Startup = svc.Spec.Startup
-		row.Status = svc.Status
+		row.Status = string(svc.Status)
 		row.Pid = svc.Pid
 		row.StartTime = svc.StartTime
 		if running, err := utils.IsProcessRunning(row.Pid); err == nil && running {

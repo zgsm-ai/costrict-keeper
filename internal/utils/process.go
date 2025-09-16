@@ -2,11 +2,7 @@ package utils
 
 import (
 	"fmt"
-	"log"
 	"os"
-	"os/exec"
-	"runtime"
-	"strconv"
 	"strings"
 )
 
@@ -63,136 +59,7 @@ func KillSpecifiedProcesses(targetProcesses []string) error {
 }
 
 func KillSpecifiedProcess(processName string) error {
-	// 根据操作系统选择不同的进程枚举方式
-	if runtime.GOOS == "windows" {
-		return killProcessWindows(processName)
-	} else {
-		return killProcessUnix(processName)
-	}
-}
-
-/**
- * Kill processes on Windows system
- * @param {[]string} targetProcesses - List of process names to kill
- * @returns {error} Returns error if process killing fails, nil on success
- * @description
- * - Uses tasklist command to enumerate processes
- * - Parses output to find target process PIDs
- * - Kills each found process using taskkill command
- * @throws
- * - Command execution errors
- * - Process kill errors
- */
-
-func killProcessWindows(processName string) error {
-	log.Printf("Looking for process: %s\n", processName)
-
-	selfPid := os.Getpid()
-
-	// 使用tasklist命令查找进程
-	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s*", processName), "/FO", "CSV", "/NH")
-	output, err := cmd.Output()
-	if err != nil {
-		log.Printf("Failed to list processes for %s: %v\n", processName, err)
-		return err
-	}
-
-	// 解析输出，获取PID
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		// CSV格式: "进程名","PID","会话名","会话#","内存使用"
-		fields := strings.Split(line, "\",\"")
-		if len(fields) >= 2 {
-			// 移除引号
-			procName := strings.Trim(fields[0], "\"")
-			pidStr := strings.Trim(fields[1], "\"")
-
-			// 检查进程名是否匹配
-			if strings.Contains(strings.ToLower(procName), strings.ToLower(processName)) {
-				pid, err := strconv.Atoi(pidStr)
-				if err != nil {
-					log.Printf("Failed to parse PID %s for process %s: %v\n", pidStr, procName, err)
-					continue
-				}
-				if pid == selfPid {
-					continue
-				}
-
-				// 杀死进程
-				log.Printf("Killing process %s (PID: %d)\n", procName, pid)
-				killCmd := exec.Command("taskkill", "/F", "/PID", pidStr)
-				if err := killCmd.Run(); err != nil {
-					log.Printf("Failed to kill process %s (PID: %d): %v\n", procName, pid, err)
-				} else {
-					log.Printf("Successfully killed process %s (PID: %d)\n", procName, pid)
-				}
-			}
-		}
-	}
-	return nil
-}
-
-/**
- * Kill processes on Unix system (Linux/macOS)
- * @param {[]string} targetProcesses - List of process names to kill
- * @returns {error} Returns error if process killing fails, nil on success
- * @description
- * - Uses ps command to enumerate processes
- * - Parses output to find target process PIDs
- * - Kills each found process using kill command
- * @throws
- * - Command execution errors
- * - Process kill errors
- */
-func killProcessUnix(processName string) error {
-	log.Printf("Looking for process: %s\n", processName)
-
-	selfPid := os.Getpid()
-	// 使用ps命令查找进程
-	cmd := exec.Command("ps", "aux")
-	output, err := cmd.Output()
-	if err != nil {
-		log.Printf("Failed to list processes for %s: %v\n", processName, err)
-		return err
-	}
-
-	// 解析输出，获取PID
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) >= 11 {
-			pidStr := fields[1]
-			procName := fields[10]
-
-			// 检查进程名是否匹配
-			if strings.Contains(strings.ToLower(procName), strings.ToLower(processName)) {
-				pid, err := strconv.Atoi(pidStr)
-				if err != nil {
-					log.Printf("Failed to parse PID %s for process %s: %v\n", pidStr, procName, err)
-					continue
-				}
-				if pid == selfPid {
-					continue
-				}
-
-				// 杀死进程
-				log.Printf("Killing process %s (PID: %d)\n", procName, pid)
-				killCmd := exec.Command("kill", "-9", pidStr)
-				if err := killCmd.Run(); err != nil {
-					log.Printf("Failed to kill process %s (PID: %d): %v\n", procName, pid, err)
-				} else {
-					log.Printf("Successfully killed process %s (PID: %d)\n", procName, pid)
-				}
-			}
-		}
-	}
-	return nil
+	// 在Windows系统上，killSpecifiedProcess函数在process_windows.go中定义
+	// 在Unix系统上，killSpecifiedProcess函数在process_unix.go中定义
+	return killSpecifiedProcess(processName)
 }

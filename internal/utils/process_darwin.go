@@ -54,24 +54,27 @@ func IsProcessRunning(pid int) (bool, error) {
 
 // GetProcessName 根据PID获取进程名
 func GetProcessName(pid int) (string, error) {
-	// 读取/proc/<pid>/cmdline文件
-	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
-	cmdline, err := os.ReadFile(cmdlinePath)
+	// 在Darwin系统上，使用ps命令获取进程名
+	// 使用command字段替代comm字段，避免命令名被截断
+	cmd := exec.Command("ps", "-p", fmt.Sprintf("%d", pid), "-o", "command=")
+	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to read cmdline for PID %d: %v", pid, err)
+		return "", fmt.Errorf("failed to get process name for PID %d: %v", pid, err)
 	}
 
-	if len(cmdline) == 0 {
-		return "", fmt.Errorf("no cmdline found for PID %d", pid)
+	// 去除空白字符
+	commandLine := strings.TrimSpace(string(output))
+	if commandLine == "" {
+		return "", fmt.Errorf("no process found with PID %d", pid)
 	}
 
-	// 分割参数（以null字符分隔）
-	args := strings.Split(string(cmdline), "\x00")
-	if len(args) == 0 {
-		return "", fmt.Errorf("invalid cmdline format for PID %d", pid)
+	// 从完整命令行中提取命令名称（第一段内容）
+	fields := strings.Fields(commandLine)
+	if len(fields) == 0 {
+		return "", fmt.Errorf("invalid command format for PID %d", pid)
 	}
 
-	// 获取可执行文件名
-	execPath := args[0]
-	return filepath.Base(execPath), nil
+	// 获取命令名称并去除路径
+	processName := filepath.Base(fields[0])
+	return processName, nil
 }

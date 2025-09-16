@@ -142,12 +142,6 @@ func (tun *TunnelInstance) getCacheFname() string {
  * - Network request errors
  * - Non-200 HTTP status codes
  * - JSON parsing errors for response
- * @example
- * err := tm.allocMappingPort(tun)
- * if err != nil {
- *     log.Printf("Failed to get port mapping: %v", err)
- *     return err
- * }
  */
 func (tun *TunnelInstance) allocMappingPort() error {
 	client := &http.Client{}
@@ -220,12 +214,6 @@ func (tun *TunnelInstance) allocMappingPort() error {
  * - Port mapping request errors
  * - Process instance creation errors
  * - Process start errors
- * @example
- * err := tunnelInstance.openTunnel()
- * if err != nil {
- *     log.Printf("Failed to start tunnel: %v", err)
- *     return err
- * }
  */
 func (tun *TunnelInstance) OpenTunnel() error {
 	if tun.Status == models.StatusRunning {
@@ -250,9 +238,12 @@ func (tun *TunnelInstance) OpenTunnel() error {
 		return fmt.Errorf("failed to get command info: %w", err)
 	}
 	tun.proc.SetExitedCallback(func(pi *ProcessInstance) {
+		if tun.Status == models.StatusStopped || tun.Status == models.StatusError {
+			return
+		}
 		pi.RestartProcess()
-		// tun.Pid = pi.Pid
-		// tun.saveTunnel()
+		tun.Pid = pi.Pid
+		tun.saveTunnel()
 	})
 	if err := tun.proc.StartProcess(); err != nil {
 		return err
@@ -280,21 +271,14 @@ func (tun *TunnelInstance) OpenTunnel() error {
  * tunnelInstance.closeTunnel()
  */
 func (tun *TunnelInstance) CloseTunnel() error {
-	if tun.proc != nil {
-		if err := tun.proc.StopProcess(); err != nil {
-			logger.Errorf("Failed to close the tunnel (%s) (PID: %d, NAME: %s): %v",
-				tun.getTitle(), tun.Pid, tun.proc.ProcessName, err)
-		} else {
-			logger.Infof("Successfully closed the tunnel (%s) (PID: %d, NAME: %s)",
-				tun.getTitle(), tun.Pid, tun.proc.ProcessName)
-		}
-	} else {
-		logger.Infof("Tunnel (%s) process has stopped", tun.getTitle())
+	if tun.proc == nil {
+		return nil
 	}
+	logger.Infof("Tunnel '%s' (PID: %d) will be closed", tun.getTitle(), tun.Pid)
+	tun.Status = models.StatusStopped
+	tun.proc.StopProcess()
 	utils.FreePort(tun.Pairs[0].LocalPort)
 	tun.cleanTunnel()
-
-	tun.Status = models.StatusStopped
 	tun.Pid = 0
 	tun.proc = nil
 	return nil
@@ -312,12 +296,6 @@ func (tun *TunnelInstance) CloseTunnel() error {
  * @throws
  * - Tunnel stop errors
  * - Tunnel start errors
- * @example
- * err := tunnelInstance.reconnTunnel()
- * if err != nil {
- *     log.Printf("Failed to restart tunnel: %v", err)
- *     return err
- * }
  */
 func (tun *TunnelInstance) ReopenTunnel() error {
 	if tun.Status == models.StatusRunning {
@@ -340,13 +318,6 @@ func (tun *TunnelInstance) ReopenTunnel() error {
  * - Template variables include: RemoteAddr, MappingPort, LocalPort, ProcessName, ProcessPath
  * @throws
  * - Command line generation errors
- * @example
- * process, err := tunnel.createProcessInstance()
- * if err != nil {
- *     log.Printf("Failed to create process instance: %v", err)
- *     return nil, err
- * }
- * // Use process instance to start tunnel process
  */
 func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
 	cfg := config.Get()
@@ -366,8 +337,7 @@ func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
 		logger.Errorf("Tunnel startup settings are incorrect, setting: %+v", cfg.Tunnel)
 		return nil, err
 	}
-	tun.proc = NewProcessInstance("tunnel "+tun.Name, name, command, cmdArgs)
-	return tun.proc, nil
+	return NewProcessInstance("tunnel "+tun.Name, name, command, cmdArgs), nil
 }
 
 /**
@@ -385,11 +355,6 @@ func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
  * - Directory creation errors
  * - JSON serialization errors
  * - File write errors
- * @example
- * err := tm.saveTunnel(tunnelInstance)
- * if err != nil {
- *     log.Printf("Failed to save tunnel: %v", err)
- * }
  */
 func (tun *TunnelInstance) saveTunnel() error {
 	err := func() error {
@@ -427,11 +392,6 @@ func (tun *TunnelInstance) saveTunnel() error {
  * - Used when closing tunnels to clean up cached data
  * @throws
  * - File deletion errors
- * @example
- * err := tm.cleanTunnel(tunnelInstance)
- * if err != nil {
- *     log.Printf("Failed to clean tunnel cache: %v", err)
- * }
  */
 func (tun *TunnelInstance) cleanTunnel() error {
 	filePath := tun.getCacheFname()

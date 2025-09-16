@@ -28,11 +28,11 @@ const (
  * @property {models.ServiceSpecification} config - Service configuration
  */
 type ServiceInstance struct {
-	Name      string `json:"name"`
-	Pid       int    `json:"pid"`
-	Port      int    `json:"port"`
-	Status    string `json:"status"`
-	StartTime string `json:"startTime"`
+	Name      string           `json:"name"`
+	Pid       int              `json:"pid"`
+	Port      int              `json:"port"`
+	Status    models.RunStatus `json:"status"`
+	StartTime string           `json:"startTime"`
 
 	Spec      models.ServiceSpecification `json:"-"`
 	component *ComponentInstance
@@ -44,7 +44,7 @@ type ServiceDetail struct {
 	Name      string                      `json:"name"`
 	Pid       int                         `json:"pid"`
 	Port      int                         `json:"port"`
-	Status    string                      `json:"status"`
+	Status    models.RunStatus            `json:"status"`
 	StartTime string                      `json:"startTime"`
 	Spec      models.ServiceSpecification `json:"spec"`
 	Tunnel    *TunnelInstance             `json:"tunnel,omitempty"`
@@ -92,7 +92,7 @@ func GetServiceManager() *ServiceManager {
 		instance := &ServiceInstance{
 			Name:      svc.Name,
 			Pid:       0,
-			Status:    "exited",
+			Status:    models.StatusExited,
 			Spec:      svc,
 			component: sm.cm.GetComponent(svc.Name),
 		}
@@ -104,14 +104,14 @@ func GetServiceManager() *ServiceManager {
 		svc.attachTunnel()
 	}
 	sm.self.Name = COSTRICT_NAME
-	sm.self.Status = "exited"
+	sm.self.Status = models.StatusExited
 	sm.self.Spec = config.Spec().Manager.Service
 	sm.self.component = sm.cm.GetSelf()
 	sm.self.loadService()
 	sm.self.attachTunnel()
 	if env.Daemon {
 		sm.self.Pid = os.Getpid()
-		sm.self.Status = "running"
+		sm.self.Status = models.StatusRunning
 		sm.self.Port = env.ListenPort
 		sm.self.StartTime = time.Now().Format(time.RFC3339)
 		sm.self.saveService()
@@ -132,7 +132,7 @@ func GetServiceManager() *ServiceManager {
  */
 func UpdateCostrictStatus(status string) {
 	svc := serviceManager.GetSelf()
-	svc.Status = status
+	svc.Status = models.RunStatus(status)
 	svc.saveService()
 }
 
@@ -240,7 +240,7 @@ func (svc *ServiceInstance) GetTunnel() *TunnelInstance {
  * - Returns false if service is not found or unhealthy
  */
 func (svc *ServiceInstance) IsHealthy() bool {
-	if svc.Status != "running" {
+	if svc.Status != models.StatusRunning {
 		return false
 	}
 	// 如果端口不可用（已被占用），说明服务正在监听
@@ -284,7 +284,7 @@ func (svc *ServiceInstance) getKnowledge() models.ServiceKnowledge {
 		Version:    version,
 		Installed:  installed,
 		Command:    command,
-		Status:     svc.Status,
+		Status:     string(svc.Status),
 		Port:       svc.Port,
 		Startup:    spec.Startup,
 		Protocol:   spec.Protocol,
@@ -415,17 +415,17 @@ func (svc *ServiceInstance) attachProcess() error {
 	}
 	name := svc.Name
 	// 如果服务状态为running，尝试重新关联进程
-	if _, err := svc.CreateProcessInstance(); err != nil {
+	var err error
+	if svc.proc, err = svc.CreateProcessInstance(); err != nil {
 		logger.Errorf("Process %d for service %s configure error: %v", svc.Pid, name, err)
-		svc.Status = "exited"
+		svc.Status = models.StatusExited
 		svc.Pid = 0
 		svc.saveService()
 		return err
 	}
-	err := svc.proc.AttachProcess(svc.Pid)
-	if err != nil {
-		logger.Warnf("Process %d for service %s not found, marking as exited", svc.Pid, name)
-		svc.Status = "exited"
+	if err = svc.proc.AttachProcess(svc.Pid); err != nil {
+		// logger.Warnf("Process %d for service %s not found, marking as exited", svc.Pid, name)
+		svc.Status = models.StatusExited
 		svc.Pid = 0
 		svc.proc = nil
 		svc.saveService()
@@ -482,56 +482,50 @@ func (svc *ServiceInstance) startService(ctx context.Context) error {
 	}
 	svc.Port = port
 
-	if _, err = svc.CreateProcessInstance(); err != nil {
+	if svc.proc, err = svc.CreateProcessInstance(); err != nil {
 		svc.Pid = 0
-		svc.Status = "error"
+		svc.Status = models.StatusError
 		return err
 	}
 	svc.proc.SetExitedCallback(func(pi *ProcessInstance) {
-		svc.proc.RestartProcess()
-		svc.Pid = svc.proc.Pid
+		if svc.Status == models.StatusStopped || svc.Status == models.StatusError {
+			return
+		}
+		pi.RestartProcess()
+		svc.Pid = pi.Pid
+		svc.saveService()
 	})
 	if err := svc.proc.StartProcess(); err != nil {
-		svc.Status = "error"
+		svc.Status = models.StatusError
 		svc.Pid = 0
 		svc.proc = nil
 		return err
 	}
 	svc.Pid = svc.proc.Pid
 	svc.StartTime = time.Now().Format(time.RFC3339)
-	svc.Status = "running"
+	svc.Status = models.StatusRunning
 
 	if spec.Accessible == "remote" {
 		svc.tun = CreateTunnel(svc.Name, []int{svc.Port})
 		if err = svc.tun.OpenTunnel(); err != nil {
 			logger.Errorf("Start tunnel (%s:%d) failed: %v", spec.Name, svc.Port, err)
 		}
-	} else {
-		logger.Debugf("ignore %s", spec.Name)
 	}
 	svc.saveService()
 	return nil
 }
 
 func (svc *ServiceInstance) stopService() {
+	svc.Status = models.StatusStopped
 	if svc.proc != nil {
-		if err := svc.proc.StopProcess(); err != nil {
-			logger.Errorf("Failed to stop the service '%s' (PID: %d)", svc.Spec.Name, svc.Pid)
-		} else {
-			logger.Infof("Successfully stopped the service '%s' (PID: %d)", svc.Spec.Name, svc.Pid)
-		}
+		svc.proc.StopProcess()
+		svc.proc = nil
 	}
 	if svc.tun != nil {
-		if err := svc.tun.CloseTunnel(); err != nil {
-			logger.Errorf("Failed to close tunnel '%s' (Port: %d)", svc.Name, svc.Port)
-		} else {
-			logger.Infof("Successfully closed the tunnel '%s' (Port: %d)", svc.Name, svc.Port)
-		}
+		svc.tun.CloseTunnel()
 		svc.tun = nil
 	}
-	svc.Status = "stopped"
 	svc.Pid = 0
-	svc.proc = nil
 	svc.saveService()
 }
 
@@ -568,8 +562,7 @@ func (svc *ServiceInstance) CreateProcessInstance() (*ProcessInstance, error) {
 	if err != nil {
 		return nil, err
 	}
-	svc.proc = NewProcessInstance("service "+svc.Name, name, command, cmdArgs)
-	return svc.proc, nil
+	return NewProcessInstance("service "+svc.Name, name, command, cmdArgs), nil
 }
 
 func (svc *ServiceInstance) OpenTunnel() error {
@@ -688,7 +681,7 @@ func (sm *ServiceManager) StartAll(ctx context.Context) error {
 	for _, svc := range sm.services {
 		// 只启动启动模式为 "always"和"once" 的服务
 		if svc.Spec.Startup == "always" || svc.Spec.Startup == "once" {
-			if svc.Status == "running" {
+			if svc.Status == models.StatusRunning {
 				continue
 			}
 			if err := svc.startService(ctx); err != nil {
@@ -743,7 +736,7 @@ func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
 	if !ok {
 		return fmt.Errorf("service %s not found", name)
 	}
-	if svc.Status == "running" {
+	if svc.Status == models.StatusRunning {
 		return fmt.Errorf("service %s is already running", name)
 	}
 	if err := svc.startService(ctx); err != nil {
@@ -780,7 +773,7 @@ func (sm *ServiceManager) RestartService(ctx context.Context, name string) error
 		logger.Errorf("Restart [%s] failed: service not found", name)
 		return fmt.Errorf("service %s not found", name)
 	}
-	if svc.Status == "running" {
+	if svc.Status == models.StatusRunning {
 		svc.stopService()
 	}
 	if err := svc.startService(ctx); err != nil {
@@ -813,7 +806,7 @@ func (sm *ServiceManager) StopService(name string) error {
 		logger.Errorf("Stop [%s] failed: service not found", name)
 		return fmt.Errorf("service %s not found", name)
 	}
-	if svc.Status != "running" {
+	if svc.Status != models.StatusRunning {
 		return nil
 	}
 	svc.stopService()
@@ -836,7 +829,7 @@ func (sm *ServiceManager) StopService(name string) error {
  */
 func (sm *ServiceManager) CheckServices() {
 	for _, svc := range sm.services {
-		if svc.Status == "running" && svc.Port > 0 && !utils.CheckPortConnectable(svc.Port) {
+		if svc.Status == models.StatusRunning && svc.Port > 0 && !utils.CheckPortConnectable(svc.Port) {
 			logger.Errorf("Service [%s] is unhealthy", svc.Spec.Name)
 		}
 	}

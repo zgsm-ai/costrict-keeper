@@ -2,6 +2,8 @@ package component
 
 import (
 	"context"
+	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/utils"
 	"costrict-keeper/services"
 	"fmt"
@@ -38,6 +40,10 @@ var listCmd = &cobra.Command{
  * - Version checking errors
  */
 func listInfo(ctx context.Context, args []string) error {
+	fmt.Printf("------------------------------------------\n")
+	fmt.Printf("Base URL: %s\n", config.Get().Cloud.BaseUrl)
+	fmt.Printf("Local: %s\n", env.CostrictDir)
+	fmt.Printf("------------------------------------------\n")
 	if len(args) == 0 {
 		// List all components information
 		return listAllComponents()

@@ -25,7 +25,7 @@ func GenKeys() (pubKey, priKey []byte) {
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509_Privatekey,
 	}
-	pubKey = pem.EncodeToMemory(&pem_block)
+	priKey = pem.EncodeToMemory(&pem_block)
 
 	//处理公钥,公钥包含在私钥中
 	publickKey := privateKey.PublicKey
@@ -35,7 +35,7 @@ func GenKeys() (pubKey, priKey []byte) {
 		Type:  "PUBLIC KEY",
 		Bytes: x509_PublicKey,
 	}
-	priKey = pem.EncodeToMemory(&pem_PublickKey)
+	pubKey = pem.EncodeToMemory(&pem_PublickKey)
 	return
 }
 
@@ -80,14 +80,17 @@ func RsaDecrypt(priKey []byte, cipherText []byte) []byte {
 /**
  *	使用私钥签名，priKey是私钥，msg是要签名的信息
  */
-func Sign(priKey []byte, msg []byte) []byte {
+func Sign(priKey []byte, msg []byte) ([]byte, error) {
 	block, _ := pem.Decode(priKey)
-	PrivateKey, _ := x509.ParsePKCS1PrivateKey(block.Bytes)
+	PrivateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return []byte{}, err
+	}
 	//加密操作,需要将接口类型的pub进行类型断言得到公钥类型
 	hash := sha256.Sum256(msg)
 	//调用签名函数,填入所需四个参数，得到签名
-	sign, _ := rsa.SignPKCS1v15(rand.Reader, PrivateKey, crypto.SHA256, hash[:])
-	return sign
+	sign, err := rsa.SignPKCS1v15(rand.Reader, PrivateKey, crypto.SHA256, hash[:])
+	return sign, err
 }
 
 /**

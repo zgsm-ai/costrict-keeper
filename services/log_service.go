@@ -47,12 +47,6 @@ func NewLogService(cfg *viper.Viper) *LogService {
  * @throws
  * - File not found errors (os.Stat)
  * - File path generation errors
- * @example
- * dest, err := logService.UploadLog("/var/log/app.log", "my-service")
- * if err != nil {
- *     log.Fatal(err)
- * }
- * fmt.Printf("Log uploaded to: %s", dest)
  */
 func (ls *LogService) UploadLog(filePath string, serviceName string) (string, error) {
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
@@ -82,12 +76,6 @@ func (ls *LogService) UploadLog(filePath string, serviceName string) (string, er
  * @throws
  * - Directory access errors (UploadLogDirectory)
  * - File upload errors (UploadLogDirectory)
- * @example
- * destinations, err := logService.UploadAllLogs("my-service")
- * if err != nil {
- *     log.Fatal(err)
- * }
- * fmt.Printf("Uploaded %d log files\n", len(destinations))
  */
 func (ls *LogService) UploadAllLogs(serviceName string) ([]string, error) {
 	// 获取日志目录路径
@@ -124,12 +112,6 @@ func (ls *LogService) UploadAllLogs(serviceName string) ([]string, error) {
 * @throws
 * - Directory access errors (os.ReadDir)
 * - File upload errors (UploadLog)
-* @example
-* dest, err := logService.UploadLogDirectory("/var/log/myapp", "my-service")
-* if err != nil {
-*     log.Fatal(err)
-* }
-* fmt.Printf("Uploaded log directory to: %s\n", dest)
  */
 func (ls *LogService) UploadLogDirectory(directory string, serviceName string) (string, error) {
 	// 检查目录是否存在

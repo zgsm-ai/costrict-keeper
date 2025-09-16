@@ -10,6 +10,7 @@ import (
 	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
+	"costrict-keeper/internal/utils"
 )
 
 type Server struct {
@@ -88,8 +89,16 @@ func (s *Server) Components() *ComponentManager {
  */
 func (s *Server) StartAllService() {
 	s.service.StopAll()
+	s.cleanRemains()
 	s.component.UpgradeAll()
 	s.service.StartAll(context.Background())
+}
+
+func (s *Server) cleanRemains() {
+	utils.KillSpecifiedProcess(COSTRICT_NAME)
+	for _, svc := range config.Spec().Components {
+		utils.KillSpecifiedProcess(svc.Name)
+	}
 }
 
 /**
@@ -343,7 +352,7 @@ func (s *Server) Check() models.CheckResponse {
 		}
 		serviceResults = append(serviceResults, models.ServiceCheckResult{
 			Name:           svc.Name,
-			Status:         svc.Status,
+			Status:         string(svc.Status),
 			Pid:            svc.Pid,
 			Port:           svc.Port,
 			StartTime:      svc.StartTime,
@@ -458,10 +467,10 @@ func (s *Server) GetHealthz() models.HealthResponse {
 	activeServices := 0
 	activeTunnels := 0
 	for _, svc := range s.service.GetInstances(false) {
-		if svc.Status == "running" {
+		if svc.Status == models.StatusRunning {
 			activeServices++
 			tun := svc.GetTunnel()
-			if tun != nil && tun.Status == "running" {
+			if tun != nil && tun.Status == models.StatusRunning {
 				activeTunnels += len(tun.Pairs)
 			}
 		}
