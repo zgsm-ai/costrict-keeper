@@ -46,7 +46,7 @@ var removeCmd = &cobra.Command{
  */
 func removeComponent(component string) error {
 	// Call RemovePackage function to remove package
-	if err := utils.RemovePackage(env.CostrictDir, component); err != nil {
+	if err := utils.RemovePackage(env.CostrictDir, component, nil); err != nil {
 		fmt.Printf("Failed to remove component '%s': %v\n", component, err)
 		return err
 	}

@@ -99,7 +99,7 @@ func showAllServicesStatus(manager *services.ServiceManager) error {
 		tun := svc.GetTunnel()
 		if tun != nil {
 			row.TunPort = tun.Pairs[0].MappingPort
-			if running, err := utils.IsProcessRunning(row.Pid); err == nil && running {
+			if running, err := utils.IsProcessRunning(tun.Pid); err == nil && running {
 				row.TunStatus = "Opened"
 			} else {
 				row.TunStatus = "Closed"
@@ -176,6 +176,11 @@ func showSpecificServiceStatus(manager *services.ServiceManager, name string) er
 		fmt.Printf("Local Port: %d\n", tun.Pairs[0].LocalPort)
 		fmt.Printf("Mapping Port: %d\n", tun.Pairs[0].MappingPort)
 		fmt.Printf("Tunnel PID: %d\n", tun.Pid)
+		if running, err := utils.IsProcessRunning(tun.Pid); err == nil && running {
+			fmt.Printf("Tunnel Process: running\n")
+		} else {
+			fmt.Printf("Tunnel Process: dead\n")
+		}
 	} else {
 		fmt.Printf("Tunnel closed\n")
 	}

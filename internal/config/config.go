@@ -164,7 +164,7 @@ func (cfg *AppConfig) correctConfig() {
 		cfg.Log.Path = "console" // 默认输出到控制台
 	}
 	if cfg.Log.MaxSize == 0 {
-		cfg.Log.MaxSize = 50 * 1024 * 1024 // 默认50M
+		cfg.Log.MaxSize = 1 * 1024 * 1024 // 默认1M
 	}
 }
 

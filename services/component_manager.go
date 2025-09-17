@@ -154,7 +154,7 @@ func (ci *ComponentInstance) removeComponent() error {
 		return fmt.Errorf("component '%s' is not installed", ci.Spec.Name)
 	}
 	// Remove the package
-	if err := utils.RemovePackage(env.CostrictDir, ci.Spec.Name); err != nil {
+	if err := utils.RemovePackage(env.CostrictDir, ci.Spec.Name, nil); err != nil {
 		return fmt.Errorf("failed to remove component %s: %v", ci.Spec.Name, err)
 	}
 

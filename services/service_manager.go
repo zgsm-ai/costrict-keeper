@@ -34,10 +34,19 @@ type ServiceInstance struct {
 	Status    models.RunStatus `json:"status"`
 	StartTime string           `json:"startTime"`
 
-	Spec      models.ServiceSpecification `json:"-"`
-	component *ComponentInstance
-	proc      *ProcessInstance
-	tun       *TunnelInstance
+	Spec        models.ServiceSpecification `json:"-"`
+	component   *ComponentInstance
+	proc        *ProcessInstance
+	tun         *TunnelInstance
+	failedCount int
+}
+
+type ServiceCache struct {
+	Name      string           `json:"name"`
+	Pid       int              `json:"pid"`
+	Port      int              `json:"port"`
+	Status    models.RunStatus `json:"status"`
+	StartTime string           `json:"startTime"`
 }
 
 type ServiceDetail struct {
@@ -318,7 +327,14 @@ func (svc *ServiceInstance) saveService() {
 	}
 
 	// 序列化为JSON
-	jsonData, err := json.MarshalIndent(svc, "", "  ")
+	var cache ServiceCache
+	cache.Name = svc.Name
+	cache.Pid = svc.Pid
+	cache.Port = svc.Port
+	cache.StartTime = svc.StartTime
+	cache.Status = svc.Status
+
+	jsonData, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		logger.Errorf("Service [%s] save info failed, error: %v", svc.Spec.Name, err)
 		return
@@ -370,23 +386,23 @@ func (svc *ServiceInstance) loadService() error {
 	}
 
 	// 反序列化服务实例
-	var cachedInstance ServiceInstance
-	if err := json.Unmarshal(jsonData, &cachedInstance); err != nil {
+	var cached ServiceCache
+	if err := json.Unmarshal(jsonData, &cached); err != nil {
 		logger.Errorf("Failed to unmarshal cache data for service %s: %v", svc.Name, err)
 		return err
 	}
 
 	// 验证缓存的服务实例名称是否匹配
-	if cachedInstance.Name != svc.Name {
-		logger.Warnf("Cache file name mismatch for service %s (cached name: %s), skipping", svc.Name, cachedInstance.Name)
+	if cached.Name != svc.Name {
+		logger.Warnf("Cache file name mismatch for service %s (cached name: %s), skipping", svc.Name, cached.Name)
 		return fmt.Errorf("not matched")
 	}
 
 	// 更新服务实例状态
-	svc.Pid = cachedInstance.Pid
-	svc.Status = cachedInstance.Status
-	svc.StartTime = cachedInstance.StartTime
-	svc.Port = cachedInstance.Port
+	svc.Pid = cached.Pid
+	svc.Status = cached.Status
+	svc.StartTime = cached.StartTime
+	svc.Port = cached.Port
 	return nil
 }
 
@@ -424,7 +440,6 @@ func (svc *ServiceInstance) attachProcess() error {
 		return err
 	}
 	if err = svc.proc.AttachProcess(svc.Pid); err != nil {
-		// logger.Warnf("Process %d for service %s not found, marking as exited", svc.Pid, name)
 		svc.Status = models.StatusExited
 		svc.Pid = 0
 		svc.proc = nil
@@ -529,6 +544,32 @@ func (svc *ServiceInstance) stopService() {
 	svc.saveService()
 }
 
+func (svc *ServiceInstance) checkService() error {
+	if svc.Status == models.StatusStopped {
+		return nil
+	}
+	if svc.Port > 0 {
+		if !utils.CheckPortConnectable(svc.Port) {
+			logger.Errorf("Service [%s] is unhealthy", svc.Spec.Name)
+			svc.failedCount++
+		} else {
+			svc.failedCount = 0
+		}
+	}
+	if svc.proc != nil {
+	}
+	if svc.tun != nil {
+
+	}
+	if svc.proc == nil {
+		svc.startService(context.Background())
+	}
+	if svc.tun == nil {
+		svc.OpenTunnel()
+	}
+	return nil
+}
+
 /**
  * Create process instance for service execution
  * @returns {ProcessInstance} Returns created process instance
@@ -566,17 +607,15 @@ func (svc *ServiceInstance) CreateProcessInstance() (*ProcessInstance, error) {
 }
 
 func (svc *ServiceInstance) OpenTunnel() error {
-	if svc.Spec.Accessible == "remote" {
-		svc.tun = CreateTunnel(svc.Name, []int{svc.Port})
-		if err := svc.tun.OpenTunnel(); err != nil {
-			logger.Errorf("Start tunnel (%s:%d) failed: %v", svc.Name, svc.Port, err)
-			return err
-		}
+	if svc.Spec.Accessible != "remote" {
 		return nil
-	} else {
-		logger.Debugf("ignore %s", svc.Name)
-		return fmt.Errorf("not support")
 	}
+	svc.tun = CreateTunnel(svc.Name, []int{svc.Port})
+	if err := svc.tun.OpenTunnel(); err != nil {
+		logger.Errorf("Start tunnel (%s:%d) failed: %v", svc.Name, svc.Port, err)
+		return err
+	}
+	return nil
 }
 
 func (svc *ServiceInstance) CloseTunnel() error {
@@ -829,9 +868,7 @@ func (sm *ServiceManager) StopService(name string) error {
  */
 func (sm *ServiceManager) CheckServices() {
 	for _, svc := range sm.services {
-		if svc.Status == models.StatusRunning && svc.Port > 0 && !utils.CheckPortConnectable(svc.Port) {
-			logger.Errorf("Service [%s] is unhealthy", svc.Spec.Name)
-		}
+		svc.checkService()
 	}
 }
 
