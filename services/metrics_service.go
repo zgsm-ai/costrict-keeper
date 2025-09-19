@@ -123,8 +123,8 @@ func collectMetricsFromComponents() error {
 		serviceHealthStatus.WithLabelValues(svc.Name, "unknown").Set(healthValue)
 
 		// If svc has metrics endpoint, try to collect additional metrics
-		if svc.Spec.Metrics != "" && svc.Port > 0 {
-			if err := collectServiceMetrics(svc.Spec); err != nil {
+		if svc.spec.Metrics != "" && svc.Port > 0 {
+			if err := collectServiceMetrics(svc.spec); err != nil {
 				logger.Warnf("Failed to collect metrics from service %s: %v", svc.Name, err)
 			}
 		}

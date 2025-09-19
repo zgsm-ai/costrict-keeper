@@ -102,7 +102,7 @@ func (cfg *AppConfig) loadConfig(configPath string) error {
 
 func (cfg *AppConfig) correctConfig() {
 	if cfg.Server.Address == "" {
-		cfg.Server.Address = ":8999"
+		cfg.Server.Address = "localhost:8999"
 	}
 	if cfg.Server.MidnightRoosterStartHour == 0 {
 		cfg.Server.MidnightRoosterStartHour = 3
@@ -152,6 +152,7 @@ func (cfg *AppConfig) correctConfig() {
 			"client",
 			"--auth",
 			"costrict:zgsm@costrict.ai",
+			"--server",
 			"{{.RemoteAddr}}",
 			"R:{{.MappingPort}}:127.0.0.1:{{.LocalPort}}",
 		}

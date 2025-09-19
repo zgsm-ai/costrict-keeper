@@ -83,11 +83,12 @@ func showAllServicesStatus(manager *services.ServiceManager) error {
 
 	var dataList []*orderedmap.OrderedMap
 	for _, svc := range svcs {
+		detail := svc.GetDetail()
 		row := Service_Columns{}
-		row.Name = svc.Spec.Name
-		row.Protocol = svc.Spec.Protocol
+		row.Name = svc.Name
+		row.Protocol = detail.Spec.Protocol
+		row.Startup = detail.Spec.Startup
 		row.Port = svc.Port
-		row.Startup = svc.Spec.Startup
 		row.Status = string(svc.Status)
 		row.Pid = svc.Pid
 		row.StartTime = svc.StartTime
@@ -149,13 +150,13 @@ func showSpecificServiceStatus(manager *services.ServiceManager, name string) er
 	fmt.Printf("Startup command: %s\n", detail.Process.Command)
 	fmt.Printf("Startup args: %+v\n", detail.Process.Args)
 
-	fmt.Printf("Startup mode: %s\n", svc.Spec.Startup)
-	fmt.Printf("Protocol: %s\n", svc.Spec.Protocol)
-	if svc.Spec.Metrics != "" {
-		fmt.Printf("Metrics endpoint: %s\n", svc.Spec.Metrics)
+	fmt.Printf("Startup mode: %s\n", detail.Spec.Startup)
+	fmt.Printf("Protocol: %s\n", detail.Spec.Protocol)
+	if detail.Spec.Metrics != "" {
+		fmt.Printf("Metrics endpoint: %s\n", detail.Spec.Metrics)
 	}
-	if svc.Spec.Accessible != "" {
-		fmt.Printf("Access permission: %s\n", svc.Spec.Accessible)
+	if detail.Spec.Accessible != "" {
+		fmt.Printf("Access permission: %s\n", detail.Spec.Accessible)
 	}
 	// Display version information
 	if component != nil {
@@ -167,8 +168,8 @@ func showSpecificServiceStatus(manager *services.ServiceManager, name string) er
 	}
 
 	// Display endpoint URL
-	if svc.Spec.Protocol != "" && svc.Port > 0 {
-		endpointURL := fmt.Sprintf("%s://localhost:%d", svc.Spec.Protocol, svc.Port)
+	if detail.Spec.Protocol != "" && svc.Port > 0 {
+		endpointURL := fmt.Sprintf("%s://localhost:%d", detail.Spec.Protocol, svc.Port)
 		fmt.Printf("Access URL: %s\n", endpointURL)
 	}
 	tun := svc.GetTunnel()

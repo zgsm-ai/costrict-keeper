@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"costrict-keeper/internal/models"
 	"costrict-keeper/services"
 	"fmt"
@@ -160,7 +161,7 @@ func (s *ServiceController) OpenTunnel(c *gin.Context) {
 		c.JSON(404, gin.H{"error": fmt.Sprintf("service [%s] isn't exist", name)})
 		return
 	}
-	if err := svc.OpenTunnel(); err != nil {
+	if err := svc.OpenTunnel(context.Background()); err != nil {
 		c.JSON(http.StatusInternalServerError, &models.ErrorResponse{
 			Error: err.Error(),
 		})
@@ -224,7 +225,7 @@ func (s *ServiceController) ReopenTunnel(c *gin.Context) {
 		c.JSON(404, gin.H{"error": fmt.Sprintf("service [%s] isn't exist", name)})
 		return
 	}
-	if err := svc.ReopenTunnel(); err != nil {
+	if err := svc.ReopenTunnel(context.Background()); err != nil {
 		c.JSON(http.StatusInternalServerError, &models.ErrorResponse{
 			Error: err.Error(),
 		})

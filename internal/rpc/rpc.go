@@ -15,11 +15,11 @@ import (
 
 // HTTPClient 定义HTTP客户端接口
 type HTTPClient interface {
-	Get(path string, params map[string]interface{}) (interface{}, error)
-	Post(path string, data interface{}) (interface{}, error)
-	Put(path string, data interface{}) (interface{}, error)
-	Patch(path string, data interface{}) (interface{}, error)
-	Delete(path string, params map[string]interface{}) (interface{}, error)
+	Get(path string, params map[string]interface{}) (*HTTPResponse, error)
+	Post(path string, data interface{}) (*HTTPResponse, error)
+	Put(path string, data interface{}) (*HTTPResponse, error)
+	Patch(path string, data interface{}) (*HTTPResponse, error)
+	Delete(path string, params map[string]interface{}) (*HTTPResponse, error)
 	Close() error
 	IsConnected() bool
 }
@@ -35,7 +35,7 @@ type HTTPConfig struct {
 func DefaultHTTPConfig() *HTTPConfig {
 	return &HTTPConfig{
 		ServerName: "costrict",
-		Timeout:    30 * time.Second,
+		Timeout:    5 * time.Second,
 		BaseURL:    "http://localhost",
 	}
 }

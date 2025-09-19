@@ -71,12 +71,7 @@ func restartService(ctx context.Context, serviceName string) error {
  * }
  */
 func restartServiceViaRPC(ctx context.Context, serviceName string) error {
-	// 创建 RPC 客户端配置
-	config := rpc.DefaultHTTPConfig()
-	config.ServerName = "costrict"
-
-	// 创建 RPC 客户端
-	client := rpc.NewHTTPClient(config)
+	client := rpc.NewHTTPClient(nil)
 	defer client.Close()
 
 	// 调用重启服务的 API
@@ -87,12 +82,9 @@ func restartServiceViaRPC(ctx context.Context, serviceName string) error {
 	}
 
 	// 检查响应状态
-	if httpResp, ok := resp.(*rpc.HTTPResponse); ok {
-		if httpResp.StatusCode >= 400 {
-			return fmt.Errorf("restart API returned status code %d", httpResp.StatusCode)
-		}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("restart API returned status code %d", resp.StatusCode)
 	}
-
 	return nil
 }
 

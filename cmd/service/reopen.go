@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -20,33 +21,34 @@ var reopenCmd = &cobra.Command{
 			log.Fatal("Must specify service name")
 		}
 
-		// 尝试使用 RPC 客户端连接 costrict 服务器
-		rpcClient := rpc.NewHTTPClient(nil)
-		if rpcClient != nil && tryReopenTunnelViaRPC(rpcClient, serviceName) {
-			// RPC 调用成功，直接返回
+		if reopenTunnelViaRPC(serviceName) {
 			return
 		}
-
 		// RPC 连接失败，回退到原有逻辑
-		log.Printf("Failed to connect to costrict server via RPC, falling back to local tunnel management")
-		service := services.GetServiceManager()
-		svc := service.GetInstance(serviceName)
-		if svc != nil {
-			if err := svc.ReopenTunnel(); err != nil {
-				log.Fatalf("Failed to open tunnel: %v", err)
-				return
-			}
-		} else {
-			log.Fatalf("Failed to open tunnel: %v", serviceName)
-			return
-		}
-		tun := svc.GetTunnel()
-		fmt.Printf("Successfully open tunnel for app %s, local port: %d, remote port: %d",
-			serviceName, tun.Pairs[0].LocalPort, tun.Pairs[0].MappingPort)
+		log.Printf("Failed to connect to costrict server, falling back to local tunnel management")
+		reopenTunnelLocally(serviceName)
 	},
 }
 
-// tryReopenTunnelViaRPC 尝试通过 RPC 连接启动隧道
+func reopenTunnelLocally(serviceName string) {
+	service := services.GetServiceManager()
+	svc := service.GetInstance(serviceName)
+	if svc != nil {
+		if err := svc.ReopenTunnel(context.Background()); err != nil {
+			log.Fatalf("Failed to open tunnel: %v", err)
+			return
+		}
+	} else {
+		log.Fatalf("Failed to open tunnel: %v", serviceName)
+		return
+	}
+	tun := svc.GetTunnel()
+	fmt.Printf("Successfully open tunnel for app %s, local port: %d, remote port: %d",
+		serviceName, tun.Pairs[0].LocalPort, tun.Pairs[0].MappingPort)
+
+}
+
+// reopenTunnelViaRPC 尝试通过 RPC 连接启动隧道
 /**
  * Try to open tunnel via RPC connection to costrict server
  * @param {rpc.HTTPClient} rpcClient - RPC client instance
@@ -62,43 +64,37 @@ var reopenCmd = &cobra.Command{
  * - Connection establishment errors
  * - API request errors
  * - Response parsing errors
- * @example
- * success := tryReopenTunnelViaRPC(rpcClient, "myapp", 8080)
- * if success {
- *     fmt.Println("Tunnel started via RPC")
- * }
  */
-func tryReopenTunnelViaRPC(rpcClient rpc.HTTPClient, appName string) bool {
+func reopenTunnelViaRPC(appName string) bool {
+	rpcClient := rpc.NewHTTPClient(nil)
 	// 尝试调用 costrict 的 RESTful API
-	response, err := rpcClient.Post(fmt.Sprintf("/costrict/api/v1/services/%s/reopen", appName), nil)
+	resp, err := rpcClient.Post(fmt.Sprintf("/costrict/api/v1/services/%s/reopen", appName), nil)
 	if err != nil {
 		log.Printf("Failed to call costrict API: %v", err)
 		return false
 	}
 
 	// 检查响应状态码
-	if httpResp, ok := response.(*rpc.HTTPResponse); ok {
-		// 检查HTTP状态码是否在200-299范围内
-		if httpResp.StatusCode >= 200 && httpResp.StatusCode <= 299 {
-			if httpResp.Body != nil {
-				if message, msgExists := httpResp.Body["message"]; msgExists {
-					if messageStr, ok := message.(string); ok {
-						fmt.Printf("Successfully started tunnel via costrict server: %s\n", messageStr)
-						return true
-					}
+	// 检查HTTP状态码是否在200-299范围内
+	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		if resp.Body != nil {
+			if message, msgExists := resp.Body["message"]; msgExists {
+				if messageStr, ok := message.(string); ok {
+					fmt.Printf("Successfully started tunnel via costrict server: %s\n", messageStr)
+					return true
 				}
 			}
-			// 即使没有message字段，只要状态码在200-299范围内，也认为成功
-			fmt.Printf("Successfully started tunnel via costrict server, status code: %d\n", httpResp.StatusCode)
-			return true
 		}
+		// 即使没有message字段，只要状态码在200-299范围内，也认为成功
+		fmt.Printf("Successfully started tunnel via costrict server, status code: %d\n", resp.StatusCode)
+		return true
+	}
 
-		// 如果响应中包含错误信息
-		if httpResp.Body != nil {
-			if errorMsg, exists := httpResp.Body["error"]; exists {
-				if errorStr, ok := errorMsg.(string); ok {
-					log.Printf("Costrict API returned error: %s", errorStr)
-				}
+	// 如果响应中包含错误信息
+	if resp.Body != nil {
+		if errorMsg, exists := resp.Body["error"]; exists {
+			if errorStr, ok := errorMsg.(string); ok {
+				log.Printf("Costrict API returned error: %s", errorStr)
 			}
 		}
 	}

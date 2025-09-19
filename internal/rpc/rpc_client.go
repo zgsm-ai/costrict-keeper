@@ -92,7 +92,7 @@ func NewHTTPClient(config *HTTPConfig) HTTPClient {
  *     log.Fatal(err)
  * }
  */
-func (c *httpClient) Get(path string, params map[string]interface{}) (interface{}, error) {
+func (c *httpClient) Get(path string, params map[string]interface{}) (*HTTPResponse, error) {
 	if err := c.ensureConnected(); err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (c *httpClient) Get(path string, params map[string]interface{}) (interface{
  *     log.Fatal(err)
  * }
  */
-func (c *httpClient) Post(path string, data interface{}) (interface{}, error) {
+func (c *httpClient) Post(path string, data interface{}) (*HTTPResponse, error) {
 	if err := c.ensureConnected(); err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (c *httpClient) Post(path string, data interface{}) (interface{}, error) {
  *     log.Fatal(err)
  * }
  */
-func (c *httpClient) Put(path string, data interface{}) (interface{}, error) {
+func (c *httpClient) Put(path string, data interface{}) (*HTTPResponse, error) {
 	if err := c.ensureConnected(); err != nil {
 		return nil, err
 	}
@@ -295,7 +295,7 @@ func (c *httpClient) Put(path string, data interface{}) (interface{}, error) {
  *     log.Fatal(err)
  * }
  */
-func (c *httpClient) Patch(path string, data interface{}) (interface{}, error) {
+func (c *httpClient) Patch(path string, data interface{}) (*HTTPResponse, error) {
 	if err := c.ensureConnected(); err != nil {
 		return nil, err
 	}
@@ -361,7 +361,7 @@ func (c *httpClient) Patch(path string, data interface{}) (interface{}, error) {
  *     log.Fatal(err)
  * }
  */
-func (c *httpClient) Delete(path string, params map[string]interface{}) (interface{}, error) {
+func (c *httpClient) Delete(path string, params map[string]interface{}) (*HTTPResponse, error) {
 	if err := c.ensureConnected(); err != nil {
 		return nil, err
 	}

@@ -141,7 +141,7 @@ func (s *Server) StartMonitoring() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		s.service.CheckServices()
+		s.service.RecoverServices()
 	}
 }
 
@@ -341,14 +341,25 @@ func (s *Server) Check() models.CheckResponse {
 	s.service.CheckServices()
 	var serviceResults []models.ServiceCheckResult
 	for _, svc := range s.service.GetInstances(false) {
-		healthy := svc.IsHealthy()
-
 		tunResult := models.TunnelCheckResult{}
 		if svc.tun != nil {
+			tunResult.Enabled = true
 			tunResult.Pid = svc.tun.Pid
 			tunResult.CreatedTime = svc.tun.CreatedTime.Format(time.RFC3339)
 			tunResult.Status = string(svc.tun.Status)
 			tunResult.Ports = svc.tun.Pairs
+			tunResult.Healthy = svc.tun.IsHealthy()
+		} else {
+			if svc.spec.Accessible == "remote" {
+				tunResult.Enabled = true
+				tunResult.Healthy = false
+			} else {
+				tunResult.Enabled = false
+				tunResult.Healthy = true
+			}
+			tunResult.Pid = 0
+			tunResult.CreatedTime = ""
+			tunResult.Status = "exited"
 		}
 		serviceResults = append(serviceResults, models.ServiceCheckResult{
 			Name:           svc.Name,
@@ -356,7 +367,7 @@ func (s *Server) Check() models.CheckResponse {
 			Pid:            svc.Pid,
 			Port:           svc.Port,
 			StartTime:      svc.StartTime,
-			Healthy:        healthy,
+			Healthy:        svc.IsHealthy(),
 			RestartCount:   svc.proc.RestartCount,
 			LastExitTime:   svc.proc.LastExitTime.Format(time.RFC3339),
 			LastExitReason: svc.proc.LastExitReason,

@@ -4,6 +4,7 @@ package utils
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -161,16 +162,15 @@ func GetProcessName(pid int) (string, error) {
  * - Process kill errors
  */
 func killSpecifiedProcess(processName string) error {
-	// 使用Windows API实现进程查找和杀死
-	// 这里使用更高效的方法，直接调用系统API而不是外部命令
-
+	log.Printf("Looking for process: %s\n", processName)
 	// 获取所有进程ID和对应的进程名
 	// 由于Windows API限制，我们需要使用其他方法来枚举进程
 	// 这里使用tasklist命令作为备用方案
 	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s*", processName), "/FO", "CSV", "/NH")
 	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("failed to list processes for %s: %v", processName, err)
+		log.Printf("Failed to list processes for %s: %v\n", processName, err)
+		return err
 	}
 
 	// 解析输出，获取PID
@@ -201,9 +201,9 @@ func killSpecifiedProcess(processName string) error {
 
 				// 使用Windows API杀死进程
 				if err := KillProcessByPID(pid); err != nil {
-					fmt.Printf("Failed to kill process %s (PID: %d): %v\n", procName, pid, err)
+					log.Printf("Failed to kill process %s (PID: %d): %v\n", procName, pid, err)
 				} else {
-					fmt.Printf("Successfully killed process %s (PID: %d)\n", procName, pid)
+					log.Printf("Successfully killed process %s (PID: %d)\n", procName, pid)
 				}
 			}
 		}

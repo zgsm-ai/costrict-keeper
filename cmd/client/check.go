@@ -188,16 +188,29 @@ func displayCheckResults(results models.CheckResponse) {
 				fmt.Printf(" 重启次数: %d", svc.RestartCount)
 			}
 			fmt.Printf(" 状态: %s", svc.Status)
-			fmt.Printf(" 隧道: %d, %s", len(svc.Tunnel.Ports), svc.Tunnel.Status)
-			for _, tun := range svc.Tunnel.Ports {
-				fmt.Printf(" (本地端口: %d -> 映射端口: %d)", tun.LocalPort, tun.MappingPort)
-			}
 			if svc.Healthy {
 				fmt.Printf(" 健康")
 			} else {
 				fmt.Printf(" 不健康")
 			}
 			fmt.Println()
+			if svc.Tunnel.Enabled {
+				statusIcon := "✅"
+				if !svc.Tunnel.Healthy {
+					statusIcon = "❌"
+				}
+
+				fmt.Printf("%s %s 隧道: %d, %s", statusIcon, svc.Name, len(svc.Tunnel.Ports), svc.Tunnel.Status)
+				for _, tun := range svc.Tunnel.Ports {
+					fmt.Printf(" (本地端口: %d -> 映射端口: %d)", tun.LocalPort, tun.MappingPort)
+				}
+				if svc.Healthy {
+					fmt.Printf(" 健康")
+				} else {
+					fmt.Printf(" 不健康")
+				}
+				fmt.Println()
+			}
 		}
 		fmt.Println()
 	}

@@ -136,22 +136,17 @@ func TestHTTPClientWithMockServer(t *testing.T) {
 	defer client.Close()
 
 	// 测试GET请求
-	result, err := client.Get("/api/test", nil)
+	resp, err := client.Get("/api/test", nil)
 	if err != nil {
 		t.Fatalf("Failed to send GET request: %v", err)
 	}
 
-	httpResp, ok := result.(*HTTPResponse)
-	if !ok {
-		t.Fatalf("Expected HTTPResponse, got %T", result)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 
-	if httpResp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, httpResp.StatusCode)
-	}
-
-	if httpResp.Body["message"] != "test response" {
-		t.Errorf("Expected message 'test response', got %v", httpResp.Body["message"])
+	if resp.Body["message"] != "test response" {
+		t.Errorf("Expected message 'test response', got %v", resp.Body["message"])
 	}
 
 	// 测试POST请求
@@ -159,60 +154,56 @@ func TestHTTPClientWithMockServer(t *testing.T) {
 		"name":  "test item",
 		"value": 42,
 	}
-	result, err = client.Post("/api/create", postData)
+	resp, err = client.Post("/api/create", postData)
 	if err != nil {
 		t.Fatalf("Failed to send POST request: %v", err)
 	}
 
-	httpResp = result.(*HTTPResponse)
-	if httpResp.StatusCode != http.StatusCreated {
-		t.Errorf("Expected status code %d, got %d", http.StatusCreated, httpResp.StatusCode)
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("Expected status code %d, got %d", http.StatusCreated, resp.StatusCode)
 	}
 
-	if httpResp.Body["id"] != float64(123) {
-		t.Errorf("Expected id 123, got %v", httpResp.Body["id"])
+	if resp.Body["id"] != float64(123) {
+		t.Errorf("Expected id 123, got %v", resp.Body["id"])
 	}
 
 	// 测试PUT请求
 	putData := map[string]interface{}{
 		"name": "updated item",
 	}
-	result, err = client.Put("/api/update/123", putData)
+	resp, err = client.Put("/api/update/123", putData)
 	if err != nil {
 		t.Fatalf("Failed to send PUT request: %v", err)
 	}
 
-	httpResp = result.(*HTTPResponse)
-	if httpResp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, httpResp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 
 	// 测试PATCH请求
 	patchData := map[string]interface{}{
 		"value": 100,
 	}
-	result, err = client.Patch("/api/patch/123", patchData)
+	resp, err = client.Patch("/api/patch/123", patchData)
 	if err != nil {
 		t.Fatalf("Failed to send PATCH request: %v", err)
 	}
 
-	httpResp = result.(*HTTPResponse)
-	if httpResp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, httpResp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 
 	// 测试DELETE请求
-	result, err = client.Delete("/api/delete/123", nil)
+	resp, err = client.Delete("/api/delete/123", nil)
 	if err != nil {
 		t.Fatalf("Failed to send DELETE request: %v", err)
 	}
 
-	httpResp = result.(*HTTPResponse)
-	if httpResp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, httpResp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 
-	if !httpResp.Body["deleted"].(bool) {
+	if !resp.Body["deleted"].(bool) {
 		t.Errorf("Expected deleted to be true")
 	}
 }
@@ -268,22 +259,21 @@ func TestHTTPClientWithQueryParams(t *testing.T) {
 		"name":   "test",
 		"status": "active",
 	}
-	result, err := client.Get("/api/search", params)
+	resp, err := client.Get("/api/search", params)
 	if err != nil {
 		t.Fatalf("Failed to send GET request with params: %v", err)
 	}
 
-	httpResp := result.(*HTTPResponse)
-	if httpResp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, httpResp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 
-	if httpResp.Body["query_name"] != "test" {
-		t.Errorf("Expected query_name 'test', got %v", httpResp.Body["query_name"])
+	if resp.Body["query_name"] != "test" {
+		t.Errorf("Expected query_name 'test', got %v", resp.Body["query_name"])
 	}
 
-	if httpResp.Body["query_status"] != "active" {
-		t.Errorf("Expected query_status 'active', got %v", httpResp.Body["query_status"])
+	if resp.Body["query_status"] != "active" {
+		t.Errorf("Expected query_status 'active', got %v", resp.Body["query_status"])
 	}
 }
 

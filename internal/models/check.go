@@ -23,9 +23,11 @@ type ServiceCheckResult struct {
 // TunnelCheckResult 隧道检查结果
 // @Description 隧道状态检查结果
 type TunnelCheckResult struct {
+	Enabled     bool       `json:"enabled" description:"是否启用隧道"`
 	Ports       []PortPair `json:"ports" description:"端口对集合"`
 	Status      string     `json:"status" description:"隧道状态"`
 	Pid         int        `json:"pid" description:"隧道进程ID"`
+	Healthy     bool       `json:"healthy" description:"是否健康"`
 	CreatedTime string     `json:"createdTime" description:"创建时间"`
 }
 

@@ -16,7 +16,7 @@ import (
 
 /**
  * ProcessInstance 进程实例信息
- * @property {string} instanceName - 进程实例名称，唯一标识
+ * @property {string} title - 进程标题，用于显示
  * @property {string} processName - 进程列表显示的进程名，processName+pid可以确定一个进程身份，放误杀
  * @property {string} command - 执行命令
  * @property {[]string} args - 命令参数
@@ -30,27 +30,28 @@ import (
  * @property {int} maxRestartCount - 最大重启次数
  */
 type ProcessInstance struct {
-	Title           string                 //显示用的名字
-	ProcessName     string                 //进程名，用于查找进程
-	Command         string                 //进程启动命令
-	Args            []string               //进程参数
-	WorkDir         string                 //工作目录
-	ExitedCallback  func(*ProcessInstance) //监测到进程退出的回调函数
-	MaxRestartCount int                    //最大重启次数
-	Pid             int                    //进程PID
-	Status          models.RunStatus       //状态
-	RestartCount    int                    //重启次数
-	StartTime       time.Time              //启动时间
-	LastExitTime    time.Time              //最后一次退出的时间
-	LastExitReason  string                 //最后一次退出的原因
-	cancelFunc      context.CancelFunc     //取消进程
+	Title           string                 `json:"title"`           //显示用的名字
+	ProcessName     string                 `json:"processName"`     //进程名，用于查找进程
+	Command         string                 `json:"command"`         //进程启动命令
+	Args            []string               `json:"args"`            //进程参数
+	WorkDir         string                 `json:"workDir"`         //工作目录
+	MaxRestartCount int                    `json:"maxRestartCount"` //最大重启次数
+	Pid             int                    `json:"pid"`             //进程PID
+	Status          models.RunStatus       `json:"status"`          //状态
+	RestartCount    int                    `json:"restartCount"`    //重启次数
+	StartTime       time.Time              `json:"startTime"`       //启动时间
+	LastExitTime    time.Time              `json:"lastExitTime"`    //最后一次退出的时间
+	LastExitReason  string                 `json:"lastExitReason"`  //最后一次退出的原因
+	onExited        func(*ProcessInstance) //监测到进程退出时的回调函数
+	onRestarted     func(*ProcessInstance) //监测到进程已经重启的回调函数
 	process         *os.Process            //统一的进程对象，用于Wait()
 	mutex           sync.RWMutex           //保护实例数据一致性的读写锁
 }
 
 /**
  * NewProcessInstance 创建新的进程实例
- * @param {string} idName - 进程标识名称，可以唯一确定一个进程，即使它重启过
+ * @param {string} title - 进程标题，可以唯一确定一个进程，即使它重启过
+ * @param {string} processName - 进程名
  * @param {string} command - 执行命令
  * @param {[]string} args - 命令参数
  * @returns {ProcessInstance} 返回创建的进程实例
@@ -58,9 +59,9 @@ type ProcessInstance struct {
  * - 创建并初始化一个新的进程实例
  * - 设置默认的进程状态和属性
  */
-func NewProcessInstance(instanceName, processName, command string, args []string) *ProcessInstance {
+func NewProcessInstance(title, processName, command string, args []string) *ProcessInstance {
 	return &ProcessInstance{
-		Title:           instanceName,
+		Title:           title,
 		ProcessName:     processName,
 		Command:         command,
 		Args:            args,
@@ -71,20 +72,12 @@ func NewProcessInstance(instanceName, processName, command string, args []string
 	}
 }
 
-/**
- * SetExitedCallback 设置进程退出的事件回调
- * @param {func(*ProcessInstance)} callback - 进程退出的事件回调
- * @description
- * - 设置进程退出时的回调函数
- * - 当监测到进程异常退出时，会调用此回调函数通知Owner处理异常
- * - 回调函数会接收发生异常的ProcessInstance作为参数
- * @example
- * proc.SetExitedCallback(func(p *ProcessInstance) {
- *     fmt.Printf("Process %s exited\n", p.Title)
- * })
- */
-func (proc *ProcessInstance) SetExitedCallback(callback func(*ProcessInstance)) {
-	proc.ExitedCallback = callback
+func (proc *ProcessInstance) SetOnExited(callback func(*ProcessInstance)) {
+	proc.onExited = callback
+}
+
+func (proc *ProcessInstance) SetOnRestarted(callback func(*ProcessInstance)) {
+	proc.onRestarted = callback
 }
 
 /**
@@ -123,7 +116,9 @@ func (proc *ProcessInstance) AttachProcess(pid int) error {
 
 	logger.Infof("Process '%s' attached (PID: %d, NAME: %s)", proc.Title, pid, proc.ProcessName)
 	// 启动协程监控进程
-	go proc.monitorProcess()
+	if env.Daemon {
+		go proc.monitorProcess()
+	}
 	return nil
 }
 
@@ -138,7 +133,7 @@ func (proc *ProcessInstance) AttachProcess(pid int) error {
  * - 如果进程配置了自动重启，会在进程退出时自动重启
  * - 更新进程状态
  */
-func (proc *ProcessInstance) StartProcess() error {
+func (proc *ProcessInstance) StartProcess(ctx context.Context) error {
 	proc.mutex.Lock()
 	defer proc.mutex.Unlock()
 
@@ -151,10 +146,6 @@ func (proc *ProcessInstance) StartProcess() error {
 	}
 	logger.Infof("Executing command: %s", fullCommand)
 
-	// 创建上下文用于控制进程
-	ctx, cancel := context.WithCancel(context.Background())
-	proc.cancelFunc = cancel
-
 	// 创建命令
 	cmd := exec.CommandContext(ctx, proc.Command, proc.Args...)
 
@@ -163,8 +154,8 @@ func (proc *ProcessInstance) StartProcess() error {
 		cmd.Dir = proc.WorkDir
 	}
 
-	// 设置进程属性，使子进程在父进程退出后继续运行
 	if !env.Daemon {
+		// 设置进程属性，使子进程在父进程退出后继续运行
 		utils.SetNewPG(cmd)
 	}
 
@@ -176,7 +167,6 @@ func (proc *ProcessInstance) StartProcess() error {
 		return err
 	}
 
-	// 更新进程状态
 	proc.process = cmd.Process // 保存进程对象，用于统一Wait()
 	proc.Pid = cmd.Process.Pid
 	proc.Status = models.StatusRunning
@@ -184,8 +174,9 @@ func (proc *ProcessInstance) StartProcess() error {
 
 	logger.Infof("Process '%s' started (PID: %d)", proc.Title, proc.Pid)
 
-	// 启动协程监控进程
-	go proc.monitorProcess()
+	if env.Daemon { // costrict.exe作为服务器运行时，启动协程监控子进程
+		go proc.monitorProcess()
+	}
 	return nil
 }
 
@@ -210,13 +201,7 @@ func (proc *ProcessInstance) StopProcess() error {
 	proc.LastExitTime = time.Now()
 	proc.LastExitReason = "stopped by user"
 
-	if proc.cancelFunc != nil {
-		// logger.Infof("cancel %s, status=%s", proc.Title, proc.Status)
-		proc.cancelFunc()
-	}
-
 	if proc.process != nil {
-		// logger.Infof("kill %s, status=%s", proc.Title, proc.Status)
 		if err := proc.process.Kill(); err != nil {
 			logger.Errorf("Failed to kill process '%s' (PID: %d, NAME: %s)", proc.Title, proc.Pid, proc.ProcessName)
 			return err
@@ -227,6 +212,21 @@ func (proc *ProcessInstance) StopProcess() error {
 
 	logger.Infof("Process '%s' (PID: %d, NAME: %s) stopped", proc.Title, proc.Pid, proc.ProcessName)
 	return nil
+}
+
+func (proc *ProcessInstance) CheckProcess() {
+	if proc.Status == models.StatusStopped {
+		return
+	}
+	if proc.process != nil {
+		running, err := utils.IsProcessRunning(proc.Pid)
+		if err != nil || !running {
+			logger.Warnf("Process '%s' (PID: %d, NAME: %s) isn't running", proc.Title, proc.Pid, proc.ProcessName)
+			proc.Pid = 0
+			proc.Status = models.StatusExited
+			proc.process = nil
+		}
+	}
 }
 
 /**
@@ -244,32 +244,35 @@ func (proc *ProcessInstance) monitorProcess() {
 	proc.mutex.Lock()
 	defer proc.mutex.Unlock()
 
-	proc.doProcessExited(err)
+	proc.doExited(err)
 }
 
-func (proc *ProcessInstance) doProcessExited(err error) {
+func (proc *ProcessInstance) doExited(err error) {
 	if proc.Status == models.StatusStopped {
 		logger.Infof("Process '%s' (PID: %d) stopped by user", proc.Title, proc.Pid)
 		return
 	}
-	// logger.Infof("'%s' (PID: %d) doProcessExited, status=%s", proc.Title, proc.Pid, proc.Status)
 	proc.LastExitTime = time.Now()
 	if err != nil {
+		logger.Errorf("Process '%s' (PID: %d) exited with error: %v", proc.Title, proc.Pid, err)
 		proc.LastExitReason = fmt.Sprintf("exited with error: %v", err)
 		proc.Status = models.StatusError
-		logger.Errorf("Process '%s' (PID: %d) exited with error: %v", proc.Title, proc.Pid, err)
 	} else {
+		logger.Infof("Process '%s' (PID: %d) exited normally", proc.Title, proc.Pid)
 		proc.LastExitReason = "exited normally"
 		proc.Status = models.StatusExited
-		logger.Infof("Process '%s' (PID: %d) exited normally", proc.Title, proc.Pid)
 	}
-	if proc.ExitedCallback != nil {
-		proc.ExitedCallback(proc)
+	proc.process = nil
+	proc.Pid = 0
+	if proc.onExited != nil {
+		proc.onExited(proc)
+	} else {
+		proc.autoRestart()
 	}
 }
 
 /**
- * restartProcess 重启进程
+ * autoRestart 自动重启进程
  * @param {ProcessInstance} proc - 进程实例
  * @description
  * - 检查重启次数是否超过限制
@@ -277,8 +280,11 @@ func (proc *ProcessInstance) doProcessExited(err error) {
  * - 延迟重启进程
  * - 对于附加的进程，无法重启，只记录日志
  */
-func (proc *ProcessInstance) RestartProcess() {
-	// 检查重启次数是否超过限制
+func (proc *ProcessInstance) autoRestart() {
+	// 检查是否需要自动重启：非服务器模式不自动重启，重启次数是否超过限制也不自动重启
+	if !env.Daemon {
+		return
+	}
 	if proc.MaxRestartCount > 0 && proc.RestartCount >= proc.MaxRestartCount {
 		logger.Warnf("Process '%s' has reached maximum restart count (%d), not restarting",
 			proc.Title, proc.MaxRestartCount)
@@ -287,17 +293,19 @@ func (proc *ProcessInstance) RestartProcess() {
 
 	logger.Infof("Process '%s' will restart in %v (restart count: %d)",
 		proc.Title, time.Second, proc.RestartCount)
-
 	// 延迟重启
 	time.AfterFunc(time.Second, func() {
-		proc.mutex.Lock()
-		defer proc.mutex.Unlock()
+		// proc.mutex.Lock()
+		// defer proc.mutex.Unlock()
 
 		if proc.Status == models.StatusStopped {
 			logger.Infof("Process '%s' stopped by user, needn't restart", proc.Title)
 			return
 		}
 		proc.RestartCount++
-		proc.StartProcess()
+		proc.StartProcess(context.Background())
+		if proc.onRestarted != nil {
+			proc.onRestarted(proc)
+		}
 	})
 }
