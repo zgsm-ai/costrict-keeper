@@ -149,7 +149,7 @@ func (cfg *AppConfig) correctConfig() {
 	}
 	if len(cfg.Tunnel.Args) == 0 {
 		cfg.Tunnel.Args = []string{
-			"client",
+			// "client",
 			"--auth",
 			"costrict:zgsm@costrict.ai",
 			"--server",
