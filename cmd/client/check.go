@@ -199,12 +199,15 @@ func displayCheckResults(results models.CheckResponse) {
 				if !svc.Tunnel.Healthy {
 					statusIcon = "❌"
 				}
-
-				fmt.Printf("%s %s 隧道: %d, %s", statusIcon, svc.Name, len(svc.Tunnel.Ports), svc.Tunnel.Status)
+				fmt.Printf("%s %s", statusIcon, svc.Name)
+				if svc.Tunnel.Pid > 0 {
+					fmt.Printf(" (PID: %d)", svc.Tunnel.Pid)
+				}
+				fmt.Printf(" %s, 隧道: %d", svc.Tunnel.Status, len(svc.Tunnel.Ports))
 				for _, tun := range svc.Tunnel.Ports {
 					fmt.Printf(" (本地端口: %d -> 映射端口: %d)", tun.LocalPort, tun.MappingPort)
 				}
-				if svc.Healthy {
+				if svc.Tunnel.Healthy {
 					fmt.Printf(" 健康")
 				} else {
 					fmt.Printf(" 不健康")

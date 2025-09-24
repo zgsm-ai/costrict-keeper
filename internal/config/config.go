@@ -2,6 +2,7 @@ package config
 
 import (
 	"costrict-keeper/internal/env"
+	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/utils"
 	"encoding/json"
 	"errors"
@@ -169,13 +170,35 @@ func (cfg *AppConfig) correctConfig() {
 	}
 }
 
+func FetchRemoteConfig() error {
+	cfg := utils.UpgradeConfig{}
+	cfg.PackageName = "costrict-config"
+	cfg.TargetPath = filepath.Join(env.CostrictDir, "config", "costrict.json")
+	cfg.BaseUrl = Get().Cloud.UpgradeUrl
+	cfg.Correct()
+
+	retVer, upgraded, err := utils.UpgradePackage(cfg, nil)
+	if err != nil {
+		logger.Errorf("fetch config failed: %v", err)
+		return err
+	}
+	if !upgraded {
+		logger.Infof("The '%s' version is up to date\n", cfg.PackageName)
+	} else {
+		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(retVer))
+	}
+	return nil
+}
+
 /**
  * Load configuration from specified path
- * @param {string} configPath - Path to configuration file
  * @returns {error} Returns error if loading fails, nil on success
  */
-func LoadConfigFromPath(configPath string) error {
+func ReloadConfig() error {
+	FetchRemoteConfig()
+
 	var cfg AppConfig
+	configPath := filepath.Join(env.CostrictDir, "config", "costrict.json")
 	if err := cfg.loadConfig(configPath); err != nil {
 		return err
 	}

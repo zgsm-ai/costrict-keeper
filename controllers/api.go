@@ -2,9 +2,7 @@ package controllers
 
 import (
 	"costrict-keeper/internal/config"
-	"costrict-keeper/internal/env"
 	"costrict-keeper/services"
-	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
@@ -57,11 +55,8 @@ func (a *APIController) RegisterRoutes(r *gin.Engine) {
 // @Failure 500 {object} map[string]interface{}
 // @Router /costrict/api/v1/reload [post]
 func (a *APIController) ReloadConfig(c *gin.Context) {
-	// 获取配置文件路径
-	configPath := filepath.Join(env.CostrictDir, "config", "costrict.json")
-
 	// 调用配置重新加载方法
-	if err := config.LoadConfigFromPath(configPath); err != nil {
+	if err := config.ReloadConfig(); err != nil {
 		c.JSON(500, gin.H{
 			"code":    "config.reload_failed",
 			"message": "Failed to reload configuration: " + err.Error(),
