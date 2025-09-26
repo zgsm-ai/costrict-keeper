@@ -1,47 +1,43 @@
 package config
 
 import (
+	"bytes"
 	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/utils"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"html/template"
+	"log"
 	"os"
 	"path/filepath"
-	"sync"
 )
 
-/**
- * Server configuration parameters
- * @property {string} address - Server listening address (e.g. ":8080")
- * @property {string} mode - Application mode (debug/release/test)
- * @property {int} midnightRoosterStartHour - Midnight rooster start hour (default: 3)
- * @property {int} midnightRoosterEndHour - Midnight rooster end hour (default: 5)
- * @property {int} monitoringInterval - Monitoring execution interval in seconds (default: 300)
- * @property {int} metricsReportInterval - Metrics report execution interval in seconds, <=0 means disable (default: 300)
- * @property {int} logReportInterval - Log report execution interval in seconds, <=0 means disable (default: 0)
- */
-type ServerConfig struct {
-	Address                  string `json:"address"`
-	Mode                     string `json:"mode"`
-	MidnightRoosterStartHour int    `json:"midnight_rooster_start_hour"`
-	MidnightRoosterEndHour   int    `json:"midnight_rooster_end_hour"`
-	MonitoringInterval       int    `json:"monitoring_interval"`
-	MetricsReportInterval    int    `json:"metrics_report_interval"`
-	LogReportInterval        int    `json:"log_report_interval"`
+type MidnightRooster struct {
+	StartHour int `json:"start_hour,omitempty"`
+	EndHour   int `json:"end_hour,omitempty"`
+}
+
+type MaintainInterval struct {
+	Monitoring    int `json:"monitoring,omitempty"`
+	MetricsReport int `json:"metrics_report,omitempty"`
+	LogReport     int `json:"log_report,omitempty"`
 }
 
 type ServiceConfig struct {
-	MinPort int `json:"min_port"`
-	MaxPort int `json:"max_port"`
+	MinPort int `json:"min_port,omitempty"`
+	MaxPort int `json:"max_port,omitempty"`
 }
 
 type TunnelConfig struct {
-	ProcessName string   `json:"process_name"`
-	Command     string   `json:"command"`
-	Args        []string `json:"args"`
-	Timeout     int      `json:"timeout"`
+	ProcessName string   `json:"process_name,omitempty"`
+	Command     string   `json:"command,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	Timeout     int      `json:"timeout,omitempty"`
+}
+
+type ComponentConfig struct {
+	PublicKey string `json:"public_key,omitempty"`
 }
 
 /**
@@ -57,27 +53,26 @@ type LogConfig struct {
 }
 
 type CloudConfig struct {
-	BaseUrl        string `json:"base_url"`
-	PushgatewayUrl string `json:"pushgateway_url"`
-	TunManagerUrl  string `json:"tunman_url"`
-	TunnelUrl      string `json:"tunnel_url"`
-	UpgradeUrl     string `json:"upgrade_url"`
-	PublicKey      string `json:"public_key"`
+	PushgatewayUrl string `json:"pushgateway_url,omitempty"`
+	TunManagerUrl  string `json:"tunman_url,omitempty"`
+	TunnelUrl      string `json:"tunnel_url,omitempty"`
+	UpgradeUrl     string `json:"upgrade_url,omitempty"`
 }
 
-var ErrComponentNotFound = errors.New("component not found")
-
 type AppConfig struct {
-	Server  ServerConfig  `json:"server"`
-	Service ServiceConfig `json:"service"`
-	Tunnel  TunnelConfig  `json:"tunnel"`
-	Log     LogConfig     `json:"log"`
-	Cloud   CloudConfig   `json:"cloud"`
+	Listen    string           `json:"listen,omitempty"`
+	Midnight  MidnightRooster  `json:"midnight,omitempty"`
+	Interval  MaintainInterval `json:"interval,omitempty"`
+	Service   ServiceConfig    `json:"service,omitempty"`
+	Tunnel    TunnelConfig     `json:"tunnel,omitempty"`
+	Component ComponentConfig  `json:"component,omitempty"`
+	Cloud     CloudConfig      `json:"cloud,omitempty"`
+	Log       LogConfig        `json:"log,omitempty"`
 }
 
 var (
-	cfgData *AppConfig
-	cfgLock sync.RWMutex
+	appConfig   *AppConfig
+	cloudConfig *CloudConfig
 )
 
 /**
@@ -96,45 +91,38 @@ func (cfg *AppConfig) loadConfig(configPath string) error {
 	if err := json.NewDecoder(file).Decode(&newConfig); err != nil {
 		return err
 	}
-	newConfig.correctConfig()
 	*cfg = newConfig
 	return nil
 }
 
 func (cfg *AppConfig) correctConfig() {
-	if cfg.Server.Address == "" {
-		cfg.Server.Address = "localhost:8999"
+	if cfg.Listen == "" {
+		cfg.Listen = "localhost:8999"
 	}
-	if cfg.Server.MidnightRoosterStartHour == 0 {
-		cfg.Server.MidnightRoosterStartHour = 3
+	if cfg.Midnight.StartHour == 0 {
+		cfg.Midnight.StartHour = 3
 	}
-	if cfg.Server.MidnightRoosterEndHour == 0 {
-		cfg.Server.MidnightRoosterEndHour = 5
+	if cfg.Midnight.EndHour == 0 {
+		cfg.Midnight.EndHour = 5
 	}
-	if cfg.Server.MonitoringInterval == 0 {
-		cfg.Server.MonitoringInterval = 300
+	if cfg.Interval.Monitoring == 0 {
+		cfg.Interval.Monitoring = 300
 	}
-	if cfg.Server.MetricsReportInterval == 0 {
-		cfg.Server.MetricsReportInterval = 300
+	if cfg.Interval.MetricsReport == 0 {
+		cfg.Interval.MetricsReport = 300
 	}
 	// LogReportInterval 默认为 0，表示不上报日志
-	if cfg.Cloud.BaseUrl == "" {
-		cfg.Cloud.BaseUrl = GetBaseURL()
-		if cfg.Cloud.BaseUrl == "" {
-			cfg.Cloud.BaseUrl = "https://zgsm.sangfor.com"
-		}
-	}
 	if cfg.Cloud.PushgatewayUrl == "" {
-		cfg.Cloud.PushgatewayUrl = fmt.Sprintf("%s/pushgateway", cfg.Cloud.BaseUrl)
+		cfg.Cloud.PushgatewayUrl = "{{.BaseUrl}}/pushgateway"
 	}
 	if cfg.Cloud.UpgradeUrl == "" {
-		cfg.Cloud.UpgradeUrl = fmt.Sprintf("%s/costrict", cfg.Cloud.BaseUrl)
+		cfg.Cloud.UpgradeUrl = "{{.BaseUrl}}/costrict"
 	}
 	if cfg.Cloud.TunnelUrl == "" {
-		cfg.Cloud.TunnelUrl = fmt.Sprintf("%s/ws", cfg.Cloud.BaseUrl)
+		cfg.Cloud.TunnelUrl = "{{.BaseUrl}}/ws"
 	}
 	if cfg.Cloud.TunManagerUrl == "" {
-		cfg.Cloud.TunManagerUrl = fmt.Sprintf("%s/tunnel-manager/api/v1", cfg.Cloud.BaseUrl)
+		cfg.Cloud.TunManagerUrl = "{{.BaseUrl}}/tunnel-manager/api/v1"
 	}
 	if cfg.Service.MinPort == 0 {
 		cfg.Service.MinPort = 9000
@@ -150,12 +138,15 @@ func (cfg *AppConfig) correctConfig() {
 	}
 	if len(cfg.Tunnel.Args) == 0 {
 		cfg.Tunnel.Args = []string{
-			// "client",
 			"--auth",
 			"costrict:zgsm@costrict.ai",
+			"--tls-skip-verify",
 			"--server",
 			"{{.RemoteAddr}}",
-			"R:{{.MappingPort}}:127.0.0.1:{{.LocalPort}}",
+			"--client-port",
+			"{{.LocalPort}}",
+			"--mapping-port",
+			"{{.MappingPort}}",
 		}
 	}
 	// 设置默认日志配置
@@ -174,12 +165,12 @@ func FetchRemoteConfig() error {
 	cfg := utils.UpgradeConfig{}
 	cfg.PackageName = "costrict-config"
 	cfg.TargetPath = filepath.Join(env.CostrictDir, "config", "costrict.json")
-	cfg.BaseUrl = Get().Cloud.UpgradeUrl
+	cfg.BaseUrl = fmt.Sprintf("%s/costrict", GetBaseURL())
 	cfg.Correct()
 
 	retVer, upgraded, err := utils.UpgradePackage(cfg, nil)
 	if err != nil {
-		logger.Errorf("fetch config failed: %v", err)
+		logger.Errorf("Fetch config failed: %v", err)
 		return err
 	}
 	if !upgraded {
@@ -190,43 +181,94 @@ func FetchRemoteConfig() error {
 	return nil
 }
 
-/**
- * Load configuration from specified path
- * @returns {error} Returns error if loading fails, nil on success
- */
-func ReloadConfig() error {
-	FetchRemoteConfig()
+func expandUrl(baseUrl string, pattern string) (string, error) {
+	tpl, err := template.New("url").Parse(pattern)
+	if err != nil {
+		return "", err
+	}
+	var data struct{ BaseUrl string }
+	data.BaseUrl = baseUrl
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
 
+func expandCloudConfig(cloud *CloudConfig) *CloudConfig {
+	expand := CloudConfig{}
+	baseUrl := GetBaseURL()
+	if baseUrl == "" {
+		baseUrl = "https://zgsm.sangfor.com"
+	}
+	var err error
+	expand.PushgatewayUrl, err = expandUrl(baseUrl, cloud.PushgatewayUrl)
+	if err != nil {
+		logger.Errorf("Invalid pushgateway_url: %+v", cloud)
+		return nil
+	}
+	expand.TunManagerUrl, err = expandUrl(baseUrl, cloud.TunManagerUrl)
+	if err != nil {
+		logger.Errorf("Invalid tunmanager_url: %+v", cloud)
+		return nil
+	}
+	expand.TunnelUrl, err = expandUrl(baseUrl, cloud.TunnelUrl)
+	if err != nil {
+		logger.Errorf("Invalid tunnel_url: %+v", cloud)
+		return nil
+	}
+	expand.UpgradeUrl, err = expandUrl(baseUrl, cloud.UpgradeUrl)
+	if err != nil {
+		logger.Errorf("Invalid upgrade_url: %+v", cloud)
+		return nil
+	}
+	return &expand
+}
+
+func LoadConfig(ignoreError bool) error {
 	var cfg AppConfig
 	configPath := filepath.Join(env.CostrictDir, "config", "costrict.json")
 	if err := cfg.loadConfig(configPath); err != nil {
-		return err
+		if !ignoreError {
+			return err
+		}
 	}
 	cfg.correctConfig()
-
-	cfgLock.Lock()
-	defer cfgLock.Unlock()
-	cfgData = &cfg
 	utils.SetAvailablePortRange(cfg.Service.MinPort, cfg.Service.MaxPort)
+	cloudConfig = expandCloudConfig(&cfg.Cloud)
+	appConfig = &cfg
 	return nil
 }
 
 /**
- * Get configuration instance
+ * Load configuration from specified path
+ * @returns {error} Returns error if loading fails, nil on success
+ */
+func ReloadConfig(ignoreError bool) error {
+	if err := FetchRemoteConfig(); err != nil {
+		if !ignoreError {
+			return err
+		}
+	}
+	return LoadConfig(ignoreError)
+}
+
+/**
+ * App configuration instance
  * @returns {AppConfig} Returns configuration instance
  */
-func Get() *AppConfig {
-	if cfgData != nil {
-		return cfgData
+func App() *AppConfig {
+	if appConfig == nil {
+		log.Fatal("Must run config.LoadConfig first")
+		return nil
 	}
-	var cfg AppConfig
-	cfgFile := filepath.Join(env.CostrictDir, "config", "costrict.json")
-	cfg.loadConfig(cfgFile)
-	cfg.correctConfig()
+	return appConfig
+}
 
-	cfgLock.Lock()
-	defer cfgLock.Unlock()
-	cfgData = &cfg
-	utils.SetAvailablePortRange(cfg.Service.MinPort, cfg.Service.MaxPort)
-	return cfgData
+func Cloud() *CloudConfig {
+	if cloudConfig == nil {
+		log.Fatal("Must run config.LoadConfig first")
+		return nil
+	}
+	return cloudConfig
 }

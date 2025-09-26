@@ -41,7 +41,7 @@ var listCmd = &cobra.Command{
  */
 func listInfo(ctx context.Context, args []string) error {
 	fmt.Printf("------------------------------------------\n")
-	fmt.Printf("Base URL: %s\n", config.Get().Cloud.BaseUrl)
+	fmt.Printf("Base URL: %s\n", config.GetBaseURL())
 	fmt.Printf("Local: %s\n", env.CostrictDir)
 	fmt.Printf("------------------------------------------\n")
 	if len(args) == 0 {

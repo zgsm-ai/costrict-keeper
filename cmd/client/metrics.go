@@ -30,7 +30,7 @@ var metricsCmd = &cobra.Command{
 		_, _ = cmd.Flags().GetDuration("timeout")
 
 		if pushGatewayAddr == "" {
-			pushGatewayAddr = config.Get().Cloud.PushgatewayUrl
+			pushGatewayAddr = config.Cloud().PushgatewayUrl
 		}
 
 		if err := services.CollectAndPushMetrics(pushGatewayAddr); err != nil {

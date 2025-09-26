@@ -930,7 +930,7 @@ func (sm *ServiceManager) exportKnowledge(outputPath string) error {
 	// 构建日志知识
 	logKnowledge := models.LogKnowledge{
 		Dir:   filepath.Join(env.CostrictDir, "logs"),
-		Level: config.Get().Log.Level,
+		Level: config.App().Log.Level,
 	}
 
 	// 构建要导出的信息结构

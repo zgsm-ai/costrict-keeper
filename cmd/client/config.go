@@ -25,7 +25,7 @@ const configExample = `  # Show all configs
   costrict config`
 
 func showConfigs() {
-	auth := config.GetClientConfig()
+	auth := config.GetAuthConfig()
 
 	fmt.Printf("Base URL: %s\n", auth.BaseUrl)
 	fmt.Printf("User ID: %s\n", auth.ID)

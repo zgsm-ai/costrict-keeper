@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -152,8 +153,12 @@ func collectServiceMetrics(service models.ServiceSpecification) error {
 	url := fmt.Sprintf("http://localhost:%d%s", service.Port, service.Metrics)
 
 	// Create HTTP client with timeout
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout:   10 * time.Second,
+		Transport: tr,
 	}
 
 	// Make HTTP request to service metrics endpoint

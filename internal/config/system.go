@@ -35,7 +35,7 @@ func FetchRemoteSystemSpecification() error {
 	cfg := utils.UpgradeConfig{}
 	cfg.PackageName = "system"
 	cfg.TargetPath = filepath.Join(env.CostrictDir, "share", "system-spec.json")
-	cfg.BaseUrl = Get().Cloud.UpgradeUrl
+	cfg.BaseUrl = fmt.Sprintf("%s/costrict", GetBaseURL())
 	cfg.Correct()
 
 	retVer, upgraded, err := utils.UpgradePackage(cfg, nil)

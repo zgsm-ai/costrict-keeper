@@ -17,7 +17,7 @@ import (
  * @property {string} machine_id - Machine unique identifier
  * @property {string} base_url - Base URL for API endpoints
  */
-type ClientConfig struct {
+type AuthConfig struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	AccessToken string `json:"access_token"`
@@ -26,7 +26,7 @@ type ClientConfig struct {
 }
 
 var (
-	clientConfig ClientConfig
+	clientConfig AuthConfig
 	clientLock   sync.RWMutex
 	clientLoaded bool
 )
@@ -42,12 +42,12 @@ var (
  * - File not found error (os.Stat, os.Open)
  * - JSON decoding error (json.NewDecoder)
  * @example
- * err := LoadClientConfig()
+ * err := LoadAuthConfig()
  * if err != nil {
  *     log.Fatal("Failed to load client config:", err)
  * }
  */
-func LoadClientConfig() error {
+func LoadAuthConfig() error {
 	authPath := filepath.Join(env.CostrictDir, "share", "auth.json")
 
 	// Check if file exists
@@ -61,7 +61,7 @@ func LoadClientConfig() error {
 	}
 	defer file.Close()
 
-	var newConfig ClientConfig
+	var newConfig AuthConfig
 	if err := json.NewDecoder(file).Decode(&newConfig); err != nil {
 		return fmt.Errorf("failed to decode auth config: %w", err)
 	}
@@ -77,18 +77,18 @@ func LoadClientConfig() error {
 
 /**
  * Get client configuration instance
- * @returns {ClientConfig} Returns client configuration instance
+ * @returns {AuthConfig} Returns client configuration instance
  * @description
  * - Returns cached client configuration
  * - If configuration is not loaded, attempts to load it first
  * - Returns empty config if loading fails
  * @example
- * config := GetClientConfig()
+ * config := GetAuthConfig()
  * if config.ID == "" {
  *     log.Println("Client not configured")
  * }
  */
-func GetClientConfig() ClientConfig {
+func GetAuthConfig() AuthConfig {
 	clientLock.RLock()
 	if clientLoaded {
 		defer clientLock.RUnlock()
@@ -97,9 +97,9 @@ func GetClientConfig() ClientConfig {
 	clientLock.RUnlock()
 
 	// Try to load config if not loaded yet
-	if err := LoadClientConfig(); err != nil {
+	if err := LoadAuthConfig(); err != nil {
 		// Return empty config on error
-		return ClientConfig{}
+		return AuthConfig{}
 	}
 
 	clientLock.RLock()
@@ -114,12 +114,12 @@ func GetClientConfig() ClientConfig {
  * - Checks if client configuration has been loaded and contains required fields
  * - Required fields: ID, AccessToken, MachineID
  * @example
- * if IsClientConfigured() {
+ * if IsAuthConfigured() {
  *     // Proceed with authenticated operations
  * }
  */
-func IsClientConfigured() bool {
-	config := GetClientConfig()
+func IsAuthConfigured() bool {
+	config := GetAuthConfig()
 	return config.ID != "" && config.AccessToken != "" && config.MachineID != ""
 }
 
@@ -136,7 +136,7 @@ func IsClientConfigured() bool {
  * }
  */
 func GetAuthHeaders() map[string]string {
-	config := GetClientConfig()
+	config := GetAuthConfig()
 	headers := make(map[string]string)
 
 	if config.AccessToken != "" {
@@ -162,7 +162,7 @@ func GetAuthHeaders() map[string]string {
  * }
  */
 func GetBaseURL() string {
-	config := GetClientConfig()
+	config := GetAuthConfig()
 	return config.BaseUrl
 }
 
@@ -179,7 +179,7 @@ func GetBaseURL() string {
  * }
  */
 func GetMachineID() string {
-	config := GetClientConfig()
+	config := GetAuthConfig()
 	return config.MachineID
 }
 
@@ -194,7 +194,7 @@ func GetMachineID() string {
  * log.Printf("Client: %s", clientName)
  */
 func GetClientName() string {
-	config := GetClientConfig()
+	config := GetAuthConfig()
 	return config.Name
 }
 
@@ -211,6 +211,6 @@ func GetClientName() string {
  * }
  */
 func GetClientID() string {
-	config := GetClientConfig()
+	config := GetAuthConfig()
 	return config.ID
 }

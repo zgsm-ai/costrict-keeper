@@ -6,9 +6,12 @@ import (
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/utils"
+	"errors"
 	"fmt"
 	"path/filepath"
 )
+
+var ErrComponentNotFound = errors.New("component not found")
 
 type ComponentInstance struct {
 	Spec           models.ComponentSpecification `json:"spec"`
@@ -73,12 +76,9 @@ func GetComponentManager() *ComponentManager {
  * @private
  */
 func (ci *ComponentInstance) fetchComponentInfo() error {
-	sysConfig := config.Get()
 	cfg := utils.UpgradeConfig{
 		PackageName: ci.Spec.Name,
-		PackageDir:  filepath.Join(env.CostrictDir, "package"),
-		InstallDir:  filepath.Join(env.CostrictDir, "bin"),
-		BaseUrl:     sysConfig.Cloud.UpgradeUrl,
+		BaseUrl:     config.Cloud().UpgradeUrl,
 	}
 	cfg.Correct()
 	ci.NeedUpgrade = false
@@ -120,7 +120,7 @@ func (ci *ComponentInstance) upgradeComponent() error {
 	// 解析版本号 - 由于新结构体中没有版本信息，使用默认版本
 	upgradeCfg := utils.UpgradeConfig{
 		PackageName: ci.Spec.Name,
-		BaseUrl:     config.Get().Cloud.UpgradeUrl,
+		BaseUrl:     config.Cloud().UpgradeUrl,
 	}
 	if ci.Spec.InstallDir != "" {
 		upgradeCfg.InstallDir = filepath.Join(env.CostrictDir, ci.Spec.InstallDir)
@@ -184,7 +184,7 @@ func (ci *ComponentInstance) removeComponent() error {
 func (cm *ComponentManager) UpgradeComponent(name string) error {
 	cpn, ok := cm.components[name]
 	if !ok {
-		return fmt.Errorf("component %s not found", name)
+		return ErrComponentNotFound
 	}
 	if !cpn.NeedUpgrade {
 		return nil

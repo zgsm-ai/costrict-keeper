@@ -33,7 +33,7 @@ var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "start http server",
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := startServer(context.Background()); err != nil {
+		if err := startServer(); err != nil {
 			logger.Fatal(err)
 		}
 	},
@@ -41,7 +41,6 @@ var serverCmd = &cobra.Command{
 
 /**
  * Start HTTP server with all services
- * @param {context.Context} ctx - Context for request cancellation and timeout
  * @returns {error} Returns error if server startup fails, nil on success
  * @description
  * - Initializes Gin router with default middleware
@@ -56,19 +55,19 @@ var serverCmd = &cobra.Command{
  * - Service startup errors
  * - HTTP server startup errors
  * @example
- * err := startServer(context.Background())
+ * err := startServer()
  * if err != nil {
  *     logger.Fatal(err)
  * }
  */
-func startServer(ctx context.Context) error {
+func startServer() error {
 	// Implement process uniqueness protection using PID file
 	if err := ensureSingleInstance(); err != nil {
 		return fmt.Errorf("failed to ensure single instance: %w", err)
 	}
-
+	config.ReloadConfig(true)
 	// Determine listening address: prioritize command line arguments, then use configuration file
-	address := config.Get().Server.Address
+	address := config.App().Listen
 	if listenAddr != "" {
 		address = listenAddr
 	}
@@ -76,13 +75,14 @@ func startServer(ctx context.Context) error {
 		env.ListenPort = port
 	}
 	env.Daemon = true
+
+	svc := services.NewServer(config.App())
+	svc.StartAllService()
 	// Initialize services
 	router := gin.Default()
-
 	// 添加指标统计中间件
 	router.Use(middleware.MetricsMiddleware())
 
-	svc := services.NewServer(config.Get())
 	apiController := controllers.NewAPIController(svc)
 	apiController.RegisterRoutes(router)
 
@@ -97,7 +97,6 @@ func startServer(ctx context.Context) error {
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Start all services, monitoring and log reporting
-	go svc.StartAllService()
 	go svc.StartMonitoring()
 	go svc.StartReportMetrics()
 	go svc.StartLogReporting()

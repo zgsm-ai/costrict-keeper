@@ -28,8 +28,9 @@ import (
 func main() {
 	// 检查是否是服务器模式
 	isServerMode := len(os.Args) > 1 && os.Args[1] == "server"
-
-	logger.InitLogger(config.Get().Log.Path, config.Get().Log.Level, isServerMode, config.Get().Log.MaxSize)
+	config.LoadConfig(true)
+	cfg := config.App()
+	logger.InitLogger(cfg.Log.Path, cfg.Log.Level, isServerMode, cfg.Log.MaxSize)
 
 	if err := root.RootCmd.Execute(); err != nil {
 		logger.Fatal(err)

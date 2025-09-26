@@ -22,7 +22,7 @@ import (
  */
 func init() {
 	// 初始化配置
-	cfg := config.Get()
+	cfg := config.App()
 
 	// 初始化日志系统
 	logger.InitLogger(cfg.Log.Path, cfg.Log.Level, false, cfg.Log.MaxSize)

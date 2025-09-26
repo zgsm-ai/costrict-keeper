@@ -43,9 +43,9 @@ func NewAPIController(server *services.Server) *APIController {
  * controller.RegisterRoutes(router)
  */
 func (a *APIController) RegisterRoutes(r *gin.Engine) {
+	r.GET("/healthz", a.Healthz)
 	r.POST("/costrict/api/v1/reload", a.ReloadConfig)
 	r.POST("/costrict/api/v1/check", a.Check)
-	r.GET("/healthz", a.Healthz)
 }
 
 // @Summary 重新加载配置
@@ -56,7 +56,7 @@ func (a *APIController) RegisterRoutes(r *gin.Engine) {
 // @Router /costrict/api/v1/reload [post]
 func (a *APIController) ReloadConfig(c *gin.Context) {
 	// 调用配置重新加载方法
-	if err := config.ReloadConfig(); err != nil {
+	if err := config.ReloadConfig(false); err != nil {
 		c.JSON(500, gin.H{
 			"code":    "config.reload_failed",
 			"message": "Failed to reload configuration: " + err.Error(),

@@ -177,7 +177,7 @@ func displayCheckResults(results models.CheckResponse) {
 				statusIcon = "❌"
 			}
 
-			fmt.Printf("%s %s", statusIcon, svc.Name)
+			fmt.Printf("%s 服务: %s", statusIcon, svc.Name)
 			if svc.Pid > 0 {
 				fmt.Printf(" (PID: %d)", svc.Pid)
 			}
@@ -199,14 +199,15 @@ func displayCheckResults(results models.CheckResponse) {
 				if !svc.Tunnel.Healthy {
 					statusIcon = "❌"
 				}
-				fmt.Printf("%s %s", statusIcon, svc.Name)
+				fmt.Printf("  %s 隧道: %s", statusIcon, svc.Name)
 				if svc.Tunnel.Pid > 0 {
 					fmt.Printf(" (PID: %d)", svc.Tunnel.Pid)
 				}
-				fmt.Printf(" %s, 隧道: %d", svc.Tunnel.Status, len(svc.Tunnel.Ports))
+				fmt.Printf(" 隧道数: %d", len(svc.Tunnel.Ports))
 				for _, tun := range svc.Tunnel.Ports {
 					fmt.Printf(" (本地端口: %d -> 映射端口: %d)", tun.LocalPort, tun.MappingPort)
 				}
+				fmt.Printf(" 状态: %s", svc.Tunnel.Status)
 				if svc.Tunnel.Healthy {
 					fmt.Printf(" 健康")
 				} else {
@@ -244,12 +245,10 @@ func displayCheckResults(results models.CheckResponse) {
 	}
 
 	// Display midnight rooster status
-	fmt.Println("=== 半夜鸡叫检查结果 ===")
+	fmt.Println("=== 半夜鸡叫设置 ===")
 	fmt.Printf("状态: %s\n", results.MidnightRooster.Status)
-	fmt.Printf("下次检查时间: %s\n", results.MidnightRooster.NextCheckTime.Format(time.RFC3339))
 	fmt.Printf("最后检查时间: %s\n", results.MidnightRooster.LastCheckTime.Format(time.RFC3339))
-	fmt.Printf("组件总数: %d\n", results.MidnightRooster.ComponentsCount)
-	fmt.Printf("需要升级: %d\n", results.MidnightRooster.UpgradesNeeded)
+	fmt.Printf("下次检查时间: %s\n", results.MidnightRooster.NextCheckTime.Format(time.RFC3339))
 	fmt.Println()
 
 	fmt.Println("=== 检查完成 ===")

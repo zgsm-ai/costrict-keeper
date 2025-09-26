@@ -44,11 +44,9 @@ type ComponentCheckResult struct {
 // MidnightRoosterCheckResult 半夜鸡叫检查结果
 // @Description 半夜鸡叫自动升级检查结果
 type MidnightRoosterCheckResult struct {
-	Status          string    `json:"status" example:"active" description:"检查状态"`
-	NextCheckTime   time.Time `json:"nextCheckTime" example:"2024-01-02T03:30:00Z" description:"下次检查时间"`
-	LastCheckTime   time.Time `json:"lastCheckTime" example:"2024-01-01T03:30:00Z" description:"最后检查时间"`
-	ComponentsCount int       `json:"componentsCount" example:"5" description:"组件总数"`
-	UpgradesNeeded  int       `json:"upgradesNeeded" example:"2" description:"需要升级的组件数"`
+	Status        string    `json:"status" example:"active" description:"检查状态"`
+	NextCheckTime time.Time `json:"nextCheckTime" example:"2024-01-02T03:30:00Z" description:"下次检查时间"`
+	LastCheckTime time.Time `json:"lastCheckTime" example:"2024-01-01T03:30:00Z" description:"最后检查时间"`
 }
 
 // CheckResponse 检查API响应结构

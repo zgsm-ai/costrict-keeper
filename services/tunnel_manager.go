@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ type PortQueryResponse struct {
 }
 
 type TunnelArgs struct {
+	AppName     string
 	LocalPort   int
 	MappingPort int
 	Pairs       []models.PortPair
@@ -144,7 +146,6 @@ func (tun *TunnelInstance) getCacheFname() string {
  * - JSON parsing errors for response
  */
 func (tun *TunnelInstance) allocMappingPort() error {
-	client := &http.Client{}
 	tun.Pairs[0].MappingPort = 0
 
 	// 创建请求 body
@@ -159,7 +160,7 @@ func (tun *TunnelInstance) allocMappingPort() error {
 		return fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", config.Get().Cloud.TunManagerUrl+"/ports", bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequest("POST", config.Cloud().TunManagerUrl+"/ports", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -170,6 +171,10 @@ func (tun *TunnelInstance) allocMappingPort() error {
 		req.Header.Set(key, value)
 	}
 
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.Errorf("allocMappingPort failed - URL: %s, Body: %s, Error: %v", req.URL.String(), string(jsonBody), err)
@@ -352,15 +357,16 @@ func (tun *TunnelInstance) IsHealthy() bool {
  * - Command line generation errors
  */
 func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
-	cfg := config.Get()
+	cfg := config.App()
 	name := cfg.Tunnel.ProcessName
 	if runtime.GOOS == "windows" {
 		name = fmt.Sprintf("%s.exe", cfg.Tunnel.ProcessName)
 	}
 	args := TunnelArgs{
+		AppName:     tun.Name,
 		LocalPort:   tun.Pairs[0].LocalPort,
 		MappingPort: tun.Pairs[0].MappingPort,
-		RemoteAddr:  cfg.Cloud.TunnelUrl,
+		RemoteAddr:  config.Cloud().TunnelUrl,
 		ProcessName: name,
 		ProcessPath: filepath.Join(env.CostrictDir, "bin", name),
 	}

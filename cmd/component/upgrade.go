@@ -34,7 +34,7 @@ var upgradeCmd = &cobra.Command{
 func upgradeComponent(component string, version string) error {
 	cfg := utils.UpgradeConfig{
 		PackageName: component,
-		BaseUrl:     config.Get().Cloud.UpgradeUrl,
+		BaseUrl:     config.Cloud().UpgradeUrl,
 	}
 	cfg.Correct()
 

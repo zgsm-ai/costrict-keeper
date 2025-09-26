@@ -30,10 +30,6 @@ type Server struct {
  * - Initializes all managers: service, component, tunnel, and process
  * - Sets up the server with provided configuration
  * - Used as the main entry point for server operations
- * @example
- * cfg := config.Get()
- * server := NewServer(cfg)
- * server.StartAllService()
  */
 func NewServer(cfg *config.AppConfig) *Server {
 	return &Server{
@@ -136,7 +132,7 @@ func (s *Server) StopAllService(ctx context.Context) {
  * go server.StartMonitoring()
  */
 func (s *Server) StartMonitoring() {
-	interval := time.Duration(s.cfg.Server.MonitoringInterval) * time.Second
+	interval := time.Duration(s.cfg.Interval.Monitoring) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -157,7 +153,7 @@ func (s *Server) StartMonitoring() {
  * go server.StartReportMetrics()
  */
 func (s *Server) StartReportMetrics() {
-	interval := s.cfg.Server.MetricsReportInterval
+	interval := s.cfg.Interval.MetricsReport
 	if interval <= 0 {
 		logger.Info("Metrics reporting is disabled (interval <= 0)")
 		return
@@ -185,7 +181,7 @@ func (s *Server) StartReportMetrics() {
  * go server.StartLogReporting()
  */
 func (s *Server) StartLogReporting() {
-	interval := s.cfg.Server.LogReportInterval
+	interval := s.cfg.Interval.LogReport
 	if interval <= 0 {
 		logger.Info("Log reporting is disabled (interval <= 0)")
 		return
@@ -245,8 +241,8 @@ func (s *Server) scheduleMidnightCheck() {
 	tomorrow := now.Add(24 * time.Hour)
 
 	// 从配置中获取半夜鸡叫起止时间
-	startHour := s.cfg.Server.MidnightRoosterStartHour
-	endHour := s.cfg.Server.MidnightRoosterEndHour
+	startHour := s.cfg.Midnight.StartHour
+	endHour := s.cfg.Midnight.EndHour
 
 	// 设置明天的基础时间（开始小时）
 	baseTime := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), startHour, 0, 0, 0, tomorrow.Location())
@@ -378,7 +374,7 @@ func (s *Server) Check() models.CheckResponse {
 	response.Services = serviceResults
 
 	// 检查组件
-	upgradesNeeded := s.component.CheckComponents()
+	s.component.CheckComponents()
 	var components []models.ComponentCheckResult
 	for _, cpn := range s.component.GetComponents(true) {
 		components = append(components, models.ComponentCheckResult{
@@ -392,11 +388,9 @@ func (s *Server) Check() models.CheckResponse {
 	response.Components = components
 
 	response.MidnightRooster = models.MidnightRoosterCheckResult{
-		Status:          "active",
-		NextCheckTime:   s.nextMidnightCheck,
-		LastCheckTime:   time.Now(), // 简化处理
-		ComponentsCount: len(components),
-		UpgradesNeeded:  upgradesNeeded,
+		Status:        "active",
+		NextCheckTime: s.nextMidnightCheck,
+		LastCheckTime: time.Now(), // 简化处理
 	}
 
 	// 计算总体状态
@@ -449,7 +443,7 @@ func (s *Server) Check() models.CheckResponse {
  */
 func (s *Server) ReportMetrics() error {
 	// 实现指标上报逻辑
-	// if err := CollectAndPushMetrics(s.cfg.Cloud.PushgatewayUrl); err != nil {
+	// if err := CollectAndPushMetrics(config.Cloud().PushgatewayUrl); err != nil {
 	// 	logger.Errorf("Report Metrics error: %v", err)
 	// }
 	return nil

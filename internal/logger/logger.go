@@ -232,6 +232,8 @@ func setupLogFileOutput(logPath string, maxSize int64) io.Writer {
 func Debug(v ...interface{}) {
 	if defaultLogger != nil {
 		defaultLogger.debugLogger.Println(v...)
+	} else {
+		log.Println(v...)
 	}
 }
 
@@ -246,6 +248,8 @@ func Debugf(format string, v ...interface{}) {
 func Info(v ...interface{}) {
 	if defaultLogger != nil {
 		defaultLogger.infoLogger.Println(v...)
+	} else {
+		log.Println(v...)
 	}
 }
 
@@ -253,6 +257,8 @@ func Info(v ...interface{}) {
 func Infof(format string, v ...interface{}) {
 	if defaultLogger != nil {
 		defaultLogger.infoLogger.Printf(format, v...)
+	} else {
+		log.Printf(format, v...)
 	}
 }
 
@@ -260,6 +266,8 @@ func Infof(format string, v ...interface{}) {
 func Warn(v ...interface{}) {
 	if defaultLogger != nil {
 		defaultLogger.warnLogger.Println(v...)
+	} else {
+		log.Println(v...)
 	}
 }
 
@@ -267,6 +275,8 @@ func Warn(v ...interface{}) {
 func Warnf(format string, v ...interface{}) {
 	if defaultLogger != nil {
 		defaultLogger.warnLogger.Printf(format, v...)
+	} else {
+		log.Printf(format, v...)
 	}
 }
 
@@ -274,6 +284,8 @@ func Warnf(format string, v ...interface{}) {
 func Error(v ...interface{}) {
 	if defaultLogger != nil {
 		defaultLogger.errorLogger.Println(v...)
+	} else {
+		log.Println(v...)
 	}
 }
 
@@ -281,6 +293,8 @@ func Error(v ...interface{}) {
 func Errorf(format string, v ...interface{}) {
 	if defaultLogger != nil {
 		defaultLogger.errorLogger.Printf(format, v...)
+	} else {
+		log.Printf(format, v...)
 	}
 }
 

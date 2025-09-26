@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"costrict-keeper/internal/config"
 	"costrict-keeper/services"
 
 	"github.com/gin-gonic/gin"
@@ -68,7 +67,7 @@ func (c *ComponentController) ListComponents(g *gin.Context) {
 func (c *ComponentController) UpgradeComponent(g *gin.Context) {
 	name := g.Param("name")
 	if err := c.component.UpgradeComponent(name); err != nil {
-		if err == config.ErrComponentNotFound {
+		if err == services.ErrComponentNotFound {
 			g.JSON(404, gin.H{
 				"code":    "component.not_found",
 				"message": "Component not found",
