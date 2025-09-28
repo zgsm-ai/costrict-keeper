@@ -1,12 +1,10 @@
 package service
 
 import (
-	"context"
 	"fmt"
 	"log"
 
 	"costrict-keeper/internal/rpc"
-	"costrict-keeper/services"
 
 	"github.com/spf13/cobra"
 )
@@ -21,31 +19,8 @@ var openCmd = &cobra.Command{
 			log.Fatal("Must specify service name")
 		}
 
-		if openTunnelViaRPC(serviceName) {
-			return
-		}
-
-		// RPC 连接失败，回退到原有逻辑
-		log.Printf("Failed to connect to costrict server, falling back to local tunnel management")
-		openTunnelLocally(serviceName)
+		openTunnelViaRPC(serviceName)
 	},
-}
-
-func openTunnelLocally(serviceName string) {
-	service := services.GetServiceManager()
-	svc := service.GetInstance(serviceName)
-	if svc != nil {
-		if err := svc.OpenTunnel(context.Background()); err != nil {
-			log.Fatalf("Failed to open tunnel: %v", err)
-			return
-		}
-	} else {
-		log.Fatalf("Failed to open tunnel: %v", serviceName)
-		return
-	}
-	tun := svc.GetTunnel()
-	fmt.Printf("Successfully open tunnel for app %s, local port: %d, remote port: %d",
-		serviceName, tun.Pairs[0].LocalPort, tun.Pairs[0].MappingPort)
 }
 
 /**

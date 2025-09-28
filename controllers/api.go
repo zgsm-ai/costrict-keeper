@@ -2,7 +2,9 @@ package controllers
 
 import (
 	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/env"
 	"costrict-keeper/services"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +48,7 @@ func (a *APIController) RegisterRoutes(r *gin.Engine) {
 	r.GET("/healthz", a.Healthz)
 	r.POST("/costrict/api/v1/reload", a.ReloadConfig)
 	r.POST("/costrict/api/v1/check", a.Check)
+	r.POST("/costrict/api/v1/known", a.ExportKnowledge)
 }
 
 // @Summary 重新加载配置
@@ -97,4 +100,35 @@ func (a *APIController) Healthz(c *gin.Context) {
 	// 调用server的GetHealthz方法获取健康检查响应
 	response := a.server.GetHealthz()
 	c.JSON(200, response)
+}
+
+// @Summary 导出系统知识信息
+// @Description 导出所有组件、服务和端点信息到well-known.json文件
+// @Tags System
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{} "导出成功"
+// @Failure 500 {object} map[string]interface{} "导出失败"
+// @Router /costrict/api/v1/known [post]
+func (a *APIController) ExportKnowledge(c *gin.Context) {
+	// 获取服务管理器实例
+	manager := services.GetServiceManager()
+
+	// 构建输出文件路径
+	outputFile := filepath.Join(env.CostrictDir, "share", ".well-known.json")
+
+	// 调用ExportKnowledge方法导出知识信息
+	if err := manager.ExportKnowledge(outputFile); err != nil {
+		c.JSON(500, gin.H{
+			"code":    "knowledge.export_failed",
+			"message": "Failed to export knowledge: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"status":  "success",
+		"message": "Knowledge exported successfully",
+		"path":    outputFile,
+	})
 }

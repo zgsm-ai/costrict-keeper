@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"costrict-keeper/internal/rpc"
-	"costrict-keeper/services"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -43,7 +42,7 @@ func startService(ctx context.Context, serviceName string) error {
 	resp, err := rpcClient.Post(apiPath, nil)
 	if err != nil {
 		rpcClient.Close()
-		return startServiceLocally(ctx, serviceName)
+		return err
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		rpcClient.Close()
@@ -52,76 +51,7 @@ func startService(ctx context.Context, serviceName string) error {
 	}
 	// API 调用失败，使用原有逻辑
 	rpcClient.Close()
-	return startServiceLocally(ctx, serviceName)
-}
-
-// startServiceLocally 使用本地服务管理器启动服务
-/**
- * Start service using local service manager
- * @param {context.Context} ctx - Context for request cancellation and timeout
- * @param {string} serviceName - Name of the service to start
- * @returns {error} Returns error if service start fails, nil on success
- * @description
- * - Creates new service manager instance
- * - Attempts to start the specified service locally
- * - Prints success message if service starts successfully
- * @throws
- * - Service start failure errors
- * @example
- * err := startServiceLocally(context.Background(), "codebase-syncer")
- * if err != nil {
- *     logger.Fatal(err)
- * }
- */
-func startServiceLocally(ctx context.Context, serviceName string) error {
-	if serviceName == services.COSTRICT_NAME {
-		return startCostrict()
-	}
-	manager := services.GetServiceManager()
-	if err := manager.StartService(ctx, serviceName); err != nil {
-		fmt.Printf("Failed to start service: %v\n", err)
-		return err
-	}
-	fmt.Printf("Service '%s' has been started locally\n", serviceName)
-	return nil
-}
-
-func startCostrict() error {
-	svc := services.GetServiceManager().GetSelf()
-
-	return svc.StartService(context.Background())
-
-	// svc.Port, _ = utils.AllocPort(svc.Spec.Port)
-	// proc, err := svc.CreateProcessInstance()
-	// if err != nil {
-	// 	return err
-	// }
-
-	// fullCommand := proc.Command
-	// for _, arg := range proc.Args {
-	// 	fullCommand += " " + arg
-	// }
-	// fmt.Printf("Executing command: %s\n", fullCommand)
-
-	// // 创建上下文用于控制进程
-	// ctx, _ := context.WithCancel(context.Background())
-	// cmd := exec.CommandContext(ctx, proc.Command, proc.Args...)
-
-	// // 设置工作目录
-	// if proc.WorkDir != "" {
-	// 	cmd.Dir = proc.WorkDir
-	// }
-
-	// // 设置进程属性，使子进程在父进程退出后继续运行
-	// utils.SetNewPG(cmd)
-
-	// if err := cmd.Start(); err != nil {
-	// 	fmt.Printf("Failed to start process '%s': %v\n", proc.Title, err)
-	// 	return err
-	// }
-
-	// fmt.Printf("Process '%s' started (PID: %d)\n", proc.Title, cmd.Process.Pid)
-	// return nil
+	return fmt.Errorf("http error: %s", resp.Error)
 }
 
 func init() {

@@ -3,8 +3,6 @@ package service
 import (
 	"context"
 	"costrict-keeper/internal/rpc"
-	"costrict-keeper/internal/utils"
-	"costrict-keeper/services"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -15,39 +13,10 @@ var restartCmd = &cobra.Command{
 	Short: "Restart service",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := restartService(context.Background(), args[0]); err != nil {
+		if err := restartServiceViaRPC(context.Background(), args[0]); err != nil {
 			fmt.Println(err)
 		}
 	},
-}
-
-/**
- * Restart service by name
- * @param {context.Context} ctx - Context for request cancellation and timeout
- * @param {string} serviceName - Name of the service to restart
- * @returns {error} Returns error if service restart fails, nil on success
- * @description
- * - Creates new service manager instance
- * - Attempts to restart the specified service
- * - Prints success message if service restarts successfully
- * @throws
- * - Service restart failure errors
- * @example
- * err := restartService(context.Background(), "codebase-syncer")
- * if err != nil {
- *     logger.Fatal(err)
- * }
- */
-func restartService(ctx context.Context, serviceName string) error {
-	// 尝试通过 RPC 客户端连接到 costrict 服务器并重启服务
-	if err := restartServiceViaRPC(ctx, serviceName); err != nil {
-		// 如果 RPC 连接失败，回退到原有逻辑
-		fmt.Printf("RPC connection failed, using local restart: %v\n", err)
-		return restartServiceLocally(ctx, serviceName)
-	}
-
-	fmt.Printf("Service %s has been restarted via RPC\n", serviceName)
-	return nil
 }
 
 /**
@@ -85,38 +54,7 @@ func restartServiceViaRPC(ctx context.Context, serviceName string) error {
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("restart API returned status code %d", resp.StatusCode)
 	}
-	return nil
-}
-
-/**
- * Restart service locally using service manager
- * @param {context.Context} ctx - Context for request cancellation and timeout
- * @param {string} serviceName - Name of the service to restart
- * @returns {error} Returns error if local restart fails, nil on success
- * @description
- * - Gets service manager instance
- * - Calls local service restart method
- * - Returns error if restart fails
- * @throws
- * - Service manager errors
- * - Service restart errors
- * @example
- * err := restartServiceLocally(context.Background(), "codebase-syncer")
- * if err != nil {
- *     log.Fatal(err)
- * }
- */
-func restartServiceLocally(ctx context.Context, serviceName string) error {
-	if serviceName == services.COSTRICT_NAME {
-		utils.KillSpecifiedProcess(services.COSTRICT_NAME)
-		startCostrict()
-		return nil
-	}
-	manager := services.GetServiceManager()
-	if err := manager.RestartService(ctx, serviceName); err != nil {
-		return fmt.Errorf("failed to restart service: %v", err)
-	}
-	fmt.Printf("Service %s has been restarted locally\n", serviceName)
+	fmt.Printf("Service %s has been restarted via RPC\n", serviceName)
 	return nil
 }
 

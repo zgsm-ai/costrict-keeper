@@ -5,7 +5,6 @@ import (
 	"log"
 
 	"costrict-keeper/internal/rpc"
-	"costrict-keeper/services"
 
 	"github.com/spf13/cobra"
 )
@@ -19,22 +18,8 @@ var closeCmd = &cobra.Command{
 		if serviceName == "" {
 			log.Fatal("Must specify service name")
 		}
-		if closeTunnelViaRPC(serviceName) {
-			return
-		}
-		log.Printf("Failed to connect to costrict server, falling back to local tunnel management")
-		closeTunnelLocally(serviceName)
+		closeTunnelViaRPC(serviceName)
 	},
-}
-
-func closeTunnelLocally(serviceName string) {
-	service := services.GetServiceManager()
-	svc := service.GetInstance(serviceName)
-	if svc == nil {
-		log.Fatalf("Failed to close '%s' tunnel", serviceName)
-	}
-	svc.CloseTunnel()
-	fmt.Printf("Successfully close tunnel for service '%s'", serviceName)
 }
 
 /**
