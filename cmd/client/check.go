@@ -1,20 +1,11 @@
 package client
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
-	"net"
-	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"costrict-keeper/cmd/root"
-	"costrict-keeper/internal/env"
-	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/rpc"
 
@@ -24,112 +15,140 @@ import (
 var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "Check server status and health",
-	Long:  `Check server status and health by connecting to the costrict server via unix socket and calling the check API`,
+	Long:  `Check server status and health by connecting to the costrict server via RPC and calling the check API`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := checkServerStatus(); err != nil {
-			log.Fatal(err)
-		}
+		checkServerStatus()
 	},
 }
 
 const checkExample = `  # Check server status
-  costrict check
-
-  # Check server status with custom costrict directory
-  costrict check --costrict /path/to/costrict`
+  costrict check`
 
 /**
- * Check server status by connecting via unix socket and calling check API
- * @returns {error} Returns error if check fails, nil on success
+ * Check server status by connecting via RPC and calling check API
+ * @returns {void} No return value, outputs results directly or exits on error
  * @description
- * - Creates HTTP client with unix socket transport
- * - Connects to costrict server via unix socket
- * - Calls /costrict/api/v1/check endpoint
- * - Parses and displays check results
- * - Shows overall system health status
+ * - Creates RPC client to connect to costrict server
+ * - Calls /costrict/api/v1/check endpoint via RPC
+ * - Handles connection errors and API response errors
+ * - Displays check results if successful
+ * - Optionally displays configuration if global showConfig flag is true
  * @throws
- * - Unix socket connection errors
- * - HTTP request errors
- * - JSON parsing errors
+ * - Connection establishment errors
+ * - API request errors
+ * - Response parsing errors
  * @example
- * err := checkServerStatus()
- * if err != nil {
- *     logger.Fatal("Check failed:", err)
- * }
+ * checkServerStatus()
  */
-func checkServerStatus() error {
-	// Get unix socket path
-	socketPath := rpc.GetSocketPath("costrict.sock", "")
-
-	// Check if socket file exists
-	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
-		return fmt.Errorf("unix socket not found at %s, please ensure costrict server is running", socketPath)
-	}
-
-	// Create HTTP client with unix socket transport
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				d := net.Dialer{}
-				return d.DialContext(ctx, "unix", socketPath)
-			},
-		},
-		Timeout: 30 * time.Second,
-	}
-
-	// Create HTTP request
-	req, err := http.NewRequest("POST", "http://unix/costrict/api/v1/check", nil)
+func checkServerStatus() {
+	rpcClient := rpc.NewHTTPClient(nil)
+	resp, err := rpcClient.Post("/costrict/api/v1/check", nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		fmt.Printf("Failed to call costrict API: %v\n", err)
+		return
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.Error != "" {
+			fmt.Printf("Costrict API returned error: %s\n", resp.Error)
+			return
+		}
+		fmt.Printf("Unexpected response from costrict API\n")
+		return
 	}
 
-	// Set request headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "costrict-cli")
-
-	// Send request
-	logger.Info("Connecting to costrict server via unix socket...")
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to connect to server: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned error status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse JSON response
 	var checkResp models.CheckResponse
-	if err := json.Unmarshal(body, &checkResp); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	if err := json.Unmarshal([]byte(resp.Text), &checkResp); err != nil {
+		fmt.Printf("Failed to unmarshal check response: %v\n", err)
+		return
 	}
 
-	// Display check results
+	// 成功反序列化，显示检查结果
 	displayCheckResults(checkResp)
-
-	return nil
 }
 
-/**
- * Get unix socket path for costrict server
- * @returns {string} Returns the unix socket file path
- * @description
- * - Constructs socket path using costrict directory
- * - Uses "costrict.sock" as socket filename
- * @example
- * socketPath := getUnixSocketPath()
- * fmt.Printf("Socket path: %s", socketPath)
- */
-func getUnixSocketPath() string {
-	return filepath.Join(env.CostrictDir, "costrict.sock")
+func displayServices(services []models.ServiceDetail) {
+	if len(services) == 0 {
+		return
+	}
+	fmt.Printf("=== 服务检查结果 (%d 项) ===\n", len(services))
+	for _, svc := range services {
+		statusIcon := "✅"
+		if !svc.Healthy || svc.Status != "running" {
+			statusIcon = "❌"
+		}
+
+		fmt.Printf("%s 服务: %s", statusIcon, svc.Name)
+		if svc.Pid > 0 {
+			fmt.Printf(" (PID: %d)", svc.Pid)
+		}
+		if svc.Port > 0 {
+			fmt.Printf(" 端口: %d", svc.Port)
+		}
+		if svc.Process.RestartCount > 0 {
+			fmt.Printf(" 重启次数: %d", svc.Process.RestartCount)
+		}
+		fmt.Printf(" 状态: %s", svc.Status)
+		if svc.Healthy {
+			fmt.Printf(" 健康")
+		} else {
+			fmt.Printf(" 不健康")
+		}
+		fmt.Println()
+		displayTunnel(svc.Tunnel)
+	}
+	fmt.Println()
+}
+
+func displayTunnel(tunnel *models.TunnelDetail) {
+	if tunnel == nil || tunnel.Status == models.StatusDisabled {
+		return
+	}
+	statusIcon := "✅"
+	if !tunnel.Healthy {
+		statusIcon = "❌"
+	}
+	fmt.Printf("  %s 隧道: %s", statusIcon, tunnel.Name)
+	if tunnel.Pid > 0 {
+		fmt.Printf(" (PID: %d)", tunnel.Pid)
+	}
+	fmt.Printf(" 隧道数: %d", len(tunnel.Pairs))
+	for _, tun := range tunnel.Pairs {
+		fmt.Printf(" (本地端口: %d -> 映射端口: %d)", tun.LocalPort, tun.MappingPort)
+	}
+	fmt.Printf(" 状态: %s", tunnel.Status)
+	if tunnel.Healthy {
+		fmt.Printf(" 健康")
+	} else {
+		fmt.Printf(" 不健康")
+	}
+	fmt.Println()
+}
+
+func displayComponents(components []models.ComponentDetail) {
+	if len(components) == 0 {
+		return
+	}
+	fmt.Printf("=== 组件检查结果 (%d 项) ===\n", len(components))
+	for _, cpn := range components {
+		statusIcon := "✅"
+		if !cpn.Installed || cpn.NeedUpgrade {
+			statusIcon = "❌"
+		}
+
+		fmt.Printf("%s %s", statusIcon, cpn.Name)
+		if cpn.Installed {
+			fmt.Printf(" (本地版本: %s", cpn.Local.Version)
+			if cpn.NeedUpgrade {
+				fmt.Printf(" -> 远程版本: %s) 需要升级", cpn.Remote.Newest)
+			} else {
+				fmt.Printf(") 已安装")
+			}
+		} else {
+			fmt.Printf(" 未安装")
+		}
+		fmt.Println()
+	}
+	fmt.Println()
 }
 
 /**
@@ -140,9 +159,7 @@ func getUnixSocketPath() string {
  * - Shows service, process, tunnel, and component check results
  * - Displays midnight rooster status
  * - Shows summary statistics
- * @example
- * results := models.CheckResponse{OverallStatus: "healthy", ...}
- * displayCheckResults(results)
+ * - Optionally displays configuration if global showConfig flag is true
  */
 func displayCheckResults(results models.CheckResponse) {
 	fmt.Println("=== Costrict Server Status Check ===")
@@ -153,11 +170,16 @@ func displayCheckResults(results models.CheckResponse) {
 	fmt.Println()
 
 	// Display overall status
-	statusIcon := "✅"
-	if results.OverallStatus == "warning" {
+	statusIcon := ""
+	switch results.OverallStatus {
+	case "warning":
 		statusIcon = "⚠️"
-	} else if results.OverallStatus == "error" {
+	case "error":
 		statusIcon = "❌"
+	case "healthy":
+		statusIcon = "✅"
+	default:
+		statusIcon = "❓"
 	}
 	fmt.Printf("%s 总体状态: %s\n", statusIcon, results.OverallStatus)
 	fmt.Println()
@@ -168,94 +190,14 @@ func displayCheckResults(results models.CheckResponse) {
 	fmt.Printf("失败检查: %d\n", results.FailedChecks)
 	fmt.Println()
 
-	// Display services
-	if len(results.Services) > 0 {
-		fmt.Printf("=== 服务检查结果 (%d 项) ===\n", len(results.Services))
-		for _, svc := range results.Services {
-			statusIcon := "✅"
-			if !svc.Healthy || svc.Status != "running" {
-				statusIcon = "❌"
-			}
-
-			fmt.Printf("%s 服务: %s", statusIcon, svc.Name)
-			if svc.Pid > 0 {
-				fmt.Printf(" (PID: %d)", svc.Pid)
-			}
-			if svc.Port > 0 {
-				fmt.Printf(" 端口: %d", svc.Port)
-			}
-			if svc.RestartCount > 0 {
-				fmt.Printf(" 重启次数: %d", svc.RestartCount)
-			}
-			fmt.Printf(" 状态: %s", svc.Status)
-			if svc.Healthy {
-				fmt.Printf(" 健康")
-			} else {
-				fmt.Printf(" 不健康")
-			}
-			fmt.Println()
-			if svc.Tunnel.Enabled {
-				statusIcon := "✅"
-				if !svc.Tunnel.Healthy {
-					statusIcon = "❌"
-				}
-				fmt.Printf("  %s 隧道: %s", statusIcon, svc.Name)
-				if svc.Tunnel.Pid > 0 {
-					fmt.Printf(" (PID: %d)", svc.Tunnel.Pid)
-				}
-				fmt.Printf(" 隧道数: %d", len(svc.Tunnel.Ports))
-				for _, tun := range svc.Tunnel.Ports {
-					fmt.Printf(" (本地端口: %d -> 映射端口: %d)", tun.LocalPort, tun.MappingPort)
-				}
-				fmt.Printf(" 状态: %s", svc.Tunnel.Status)
-				if svc.Tunnel.Healthy {
-					fmt.Printf(" 健康")
-				} else {
-					fmt.Printf(" 不健康")
-				}
-				fmt.Println()
-			}
-		}
-		fmt.Println()
-	}
-
-	// Display components
-	if len(results.Components) > 0 {
-		fmt.Printf("=== 组件检查结果 (%d 项) ===\n", len(results.Components))
-		for _, cpn := range results.Components {
-			statusIcon := "✅"
-			if !cpn.Installed || cpn.NeedUpgrade {
-				statusIcon = "❌"
-			}
-
-			fmt.Printf("%s %s", statusIcon, cpn.Name)
-			if cpn.Installed {
-				fmt.Printf(" (本地版本: %s", cpn.LocalVersion)
-				if cpn.NeedUpgrade {
-					fmt.Printf(" -> 远程版本: %s) 需要升级", cpn.RemoteVersion)
-				} else {
-					fmt.Printf(") 已安装")
-				}
-			} else {
-				fmt.Printf(" 未安装")
-			}
-			fmt.Println()
-		}
-		fmt.Println()
-	}
-
-	// Display midnight rooster status
-	fmt.Println("=== 半夜鸡叫设置 ===")
-	fmt.Printf("状态: %s\n", results.MidnightRooster.Status)
-	fmt.Printf("最后检查时间: %s\n", results.MidnightRooster.LastCheckTime.Format(time.RFC3339))
-	fmt.Printf("下次检查时间: %s\n", results.MidnightRooster.NextCheckTime.Format(time.RFC3339))
-	fmt.Println()
+	displayServices(results.Services)
+	displayComponents(results.Components)
 
 	fmt.Println("=== 检查完成 ===")
 }
 
 func init() {
 	checkCmd.Flags().SortFlags = false
-	root.RootCmd.AddCommand(checkCmd)
 	checkCmd.Example = checkExample
+	root.RootCmd.AddCommand(checkCmd)
 }

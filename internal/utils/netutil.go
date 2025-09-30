@@ -56,3 +56,15 @@ func AllocPort(preferredPort int) (port int, err error) {
 func FreePort(port int) {
 	portAllocs[port] = false
 }
+
+func GetPortAllocates() (min, max int, allocates []int) {
+	min = minPort
+	max = maxPort
+
+	for k, v := range portAllocs {
+		if v {
+			allocates = append(allocates, k)
+		}
+	}
+	return
+}

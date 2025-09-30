@@ -442,7 +442,6 @@ func (c *httpClient) IsConnected() bool {
 	return c.connected
 }
 
-// ensureConnected 确保客户端已连接
 /**
  * Ensure HTTP client is connected to Unix socket
  * @returns {error} Error if connection fails

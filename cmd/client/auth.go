@@ -12,19 +12,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Show costrict configs",
-	Long:  `Show costrict configs`,
+var authCmd = &cobra.Command{
+	Use:   "auth",
+	Short: "Display costrict authentication configuration",
+	Long:  `Display costrict authentication configuration`,
 	Run: func(cmd *cobra.Command, args []string) {
-		showConfigs()
+		showAuthConfigs()
 	},
 }
 
-const configExample = `  # Show all configs
-  costrict config`
+const authExample = `  # Show all authentication configs
+  costrict auth`
 
-func showConfigs() {
+func showAuthConfigs() {
 	auth := config.GetAuthConfig()
 
 	fmt.Printf("Base URL: %s\n", auth.BaseUrl)
@@ -42,15 +42,15 @@ func showConfigs() {
 			}
 		}
 	} else {
-		fmt.Printf("Decoded JWT: run `costrict config --jwt`\n")
+		fmt.Printf("Decoded JWT: run `costrict auth --jwt`\n")
 	}
 }
 
 var optViewJwt bool
 
 func init() {
-	configCmd.Flags().SortFlags = false
-	configCmd.Flags().BoolVarP(&optViewJwt, "jwt", "j", false, "Display the decoded JWT")
-	root.RootCmd.AddCommand(configCmd)
-	configCmd.Example = configExample
+	authCmd.Flags().SortFlags = false
+	authCmd.Flags().BoolVarP(&optViewJwt, "jwt", "j", false, "Display the decoded JWT")
+	authCmd.Example = authExample
+	root.RootCmd.AddCommand(authCmd)
 }

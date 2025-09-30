@@ -12,15 +12,15 @@ package models
  * @property {string} accessible - Accessible: remote/local
  */
 type ServiceSpecification struct {
-	Name       string   `mapstructure:"name" json:"name"`
-	Startup    string   `mapstructure:"startup" json:"startup"`
-	Command    string   `mapstructure:"command" json:"command,omitempty"`
-	Args       []string `mapstructure:"args" json:"args,omitempty"`
-	Protocol   string   `mapstructure:"protocol" json:"protocol,omitempty"`
-	Port       int      `mapstructure:"port" json:"port,omitempty"`
-	Metrics    string   `mapstructure:"metrics" json:"metrics,omitempty"`
-	Healthy    string   `mapstructure:"healthy" json:"healthy,omitempty"`
-	Accessible string   `mapstructure:"accessible" json:"accessible,omitempty"`
+	Name       string   `json:"name"`
+	Startup    string   `json:"startup"`
+	Command    string   `json:"command,omitempty"`
+	Args       []string `json:"args,omitempty"`
+	Protocol   string   `json:"protocol,omitempty"`
+	Port       int      `json:"port,omitempty"`
+	Metrics    string   `json:"metrics,omitempty"`
+	Healthy    string   `json:"healthy,omitempty"`
+	Accessible string   `json:"accessible,omitempty"`
 }
 
 /**
@@ -30,15 +30,15 @@ type ServiceSpecification struct {
  * @property {UpgradeSpecification} upgrade - Upgrade configuration
  */
 type ComponentSpecification struct {
-	Name       string                `mapstructure:"name" json:"name"`
-	Version    string                `mapstructure:"version" json:"version"`
-	Upgrade    *UpgradeSpecification `mapstructure:"upgrade" json:"upgrade,omitempty"`
-	InstallDir string                `mapstructure:"install_dir" json:"install_dir,omitempty"`
+	Name       string                `json:"name"`
+	Version    string                `json:"version"`
+	Upgrade    *UpgradeSpecification `json:"upgrade,omitempty"`
+	InstallDir string                `json:"install_dir,omitempty"`
 }
 
 type ManagerSpecification struct {
-	Component ComponentSpecification `mapstructure:"component" json:"component"`
-	Service   ServiceSpecification   `mapstructure:"service" json:"service"`
+	Component ComponentSpecification `json:"component"`
+	Service   ServiceSpecification   `json:"service"`
 }
 
 /**
@@ -48,9 +48,9 @@ type ManagerSpecification struct {
  * @property {string} highest - Highest version limit
  */
 type UpgradeSpecification struct {
-	Mode    string `mapstructure:"mode" json:"mode"`
-	Lowest  string `mapstructure:"lowest" json:"lowest"`
-	Highest string `mapstructure:"highest" json:"highest"`
+	Mode    string `json:"mode"`
+	Lowest  string `json:"lowest"`
+	Highest string `json:"highest"`
 }
 
 /**
@@ -64,11 +64,12 @@ type UpgradeSpecification struct {
  * @property {[]ServiceSpecification} services - Service configurations
  */
 type SystemSpecification struct {
-	Configuration string                   `mapstructure:"configuration" json:"configuration"`
-	Platform      string                   `mapstructure:"platform" json:"platform"`
-	Arch          string                   `mapstructure:"arch" json:"arch"`
-	Version       string                   `mapstructure:"version" json:"version"`
-	Manager       ManagerSpecification     `mapstructure:"manager" json:"manager"`
-	Components    []ComponentSpecification `mapstructure:"components" json:"components"`
-	Services      []ServiceSpecification   `mapstructure:"services" json:"services"`
+	Configuration  string                   `json:"configuration"`
+	Platform       string                   `json:"platform"`
+	Arch           string                   `json:"arch"`
+	Version        string                   `json:"version"`
+	Manager        ManagerSpecification     `json:"manager"`
+	Components     []ComponentSpecification `json:"components"`
+	Services       []ServiceSpecification   `json:"services"`
+	Configurations []ComponentSpecification `json:"configurations,omitempty"`
 }

@@ -48,7 +48,7 @@ func upgradeComponent(component string, version string) error {
 		specVer = &v
 	}
 
-	retVer, upgraded, err := utils.UpgradePackage(cfg, specVer)
+	pkg, upgraded, err := utils.UpgradePackage(cfg, specVer)
 	if err != nil {
 		fmt.Printf("The '%s' upgrade failed: %v\n", component, err)
 		return err
@@ -56,7 +56,7 @@ func upgradeComponent(component string, version string) error {
 	if !upgraded {
 		fmt.Printf("The '%s' version is up to date\n", component)
 	} else {
-		fmt.Printf("The '%s' is upgraded to version %s\n", component, utils.PrintVersion(retVer))
+		fmt.Printf("The '%s' is upgraded to version %s\n", component, utils.PrintVersion(pkg.VersionId))
 	}
 	return nil
 }

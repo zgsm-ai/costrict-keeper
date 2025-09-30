@@ -249,17 +249,17 @@ func PrintVersion(ver VersionNumber) string {
 /**
  *	获取本地已安装包的版本
  */
-func GetLocalVersion(cfg UpgradeConfig) (VersionNumber, error) {
+func GetLocalVersion(cfg UpgradeConfig) (PackageVersion, error) {
 	var pkg PackageVersion
 	pkgFile := filepath.Join(cfg.PackageDir, fmt.Sprintf("%s.json", cfg.PackageName))
 	bytes, err := os.ReadFile(pkgFile)
 	if err != nil {
-		return VersionNumber{}, err
+		return pkg, err
 	}
 	if err := json.Unmarshal(bytes, &pkg); err != nil {
-		return VersionNumber{}, err
+		return pkg, err
 	}
-	return pkg.VersionId, nil
+	return pkg, nil
 }
 
 /**
@@ -383,7 +383,7 @@ func GetPackage(cfg UpgradeConfig, specVer *VersionNumber) (PackageVersion, bool
 	cacheDir := filepath.Join(cfg.PackageDir, PrintVersion(addr.VersionId))
 	if err = os.MkdirAll(cacheDir, 0775); err != nil {
 		log.Printf("Create cache directory '%s' failed: %v\n", cacheDir, err)
-		return pkg, false, fmt.Errorf("MkdirAll('%s') error: %v", cacheDir, err)
+		return pkg, false, err
 	}
 	//	下载包
 	_, fname := filepath.Split(pkg.FileName)
@@ -406,11 +406,11 @@ func GetPackage(cfg UpgradeConfig, specVer *VersionNumber) (PackageVersion, bool
 	sig, err := hex.DecodeString(pkg.Sign)
 	if err != nil {
 		log.Printf("Decode signature for package '%s' failed: %v\n", pkg.PackageName, err)
-		return pkg, false, fmt.Errorf("decode sign error: %v", err)
+		return pkg, false, err
 	}
 	if err = VerifySign([]byte(cfg.PublicKey), sig, []byte(md5str)); err != nil {
 		log.Printf("Verify signature for package '%s' failed: %v\n", pkg.PackageName, err)
-		return pkg, false, fmt.Errorf("verify sign error: %v", err)
+		return pkg, false, err
 	}
 	//	把包描述文件保存到包文件目录
 	pkgFile = filepath.Join(cfg.PackageDir, fmt.Sprintf("%s-%s.json", cfg.PackageName, PrintVersion(pkg.VersionId)))
@@ -465,18 +465,18 @@ func ActivatePackage(cfg UpgradeConfig, ver VersionNumber) error {
 /**
  *	升级包
  */
-func UpgradePackage(cfg UpgradeConfig, specVer *VersionNumber) (VersionNumber, bool, error) {
+func UpgradePackage(cfg UpgradeConfig, specVer *VersionNumber) (PackageVersion, bool, error) {
 	pkg, upgraded, err := GetPackage(cfg, specVer)
 	if err != nil {
-		return VersionNumber{}, false, err
+		return pkg, false, err
 	}
 	if !upgraded { //不需要更新，所以不需要激活
-		return pkg.VersionId, false, nil
+		return pkg, false, nil
 	}
 	if err := ActivatePackage(cfg, pkg.VersionId); err != nil {
-		return pkg.VersionId, false, err
+		return pkg, false, err
 	}
-	return pkg.VersionId, true, nil
+	return pkg, true, nil
 }
 
 /**

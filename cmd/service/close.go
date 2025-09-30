@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"log"
 
 	"costrict-keeper/internal/rpc"
 
@@ -16,66 +15,50 @@ var closeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		serviceName := args[0]
 		if serviceName == "" {
-			log.Fatal("Must specify service name")
+			fmt.Println("Must specify service name")
+			return
 		}
-		closeTunnelViaRPC(serviceName)
+		closeTunnel(serviceName)
 	},
 }
 
 /**
  * Try to close tunnel via RPC connection to costrict server
- * @param {rpc.HTTPClient} rpcClient - RPC client instance
  * @param {string} serviceName - Application name
- * @param {int} port - Port number for tunnel
- * @returns {bool} True if RPC call succeeded, false otherwise
+ * @returns {void} No return value
  * @description
  * - Attempts to connect to costrict server via Unix socket
- * - Calls DELETE /costrict/api/v1/tunnels/{app}/{port} endpoint to close tunnel
- * - Handles connection errors and API resp errors
- * - Returns success/failure status for fallback logic
+ * - Calls /costrict/api/v1/services/{service_name}/close endpoint to close tunnel
+ * - Handles connection errors and API response errors
+ * - Logs success/failure status messages
  * @throws
  * - Connection establishment errors
  * - API request errors
  * - Response parsing errors
  */
-func closeTunnelViaRPC(serviceName string) bool {
+func closeTunnel(serviceName string) {
 	rpcClient := rpc.NewHTTPClient(nil)
-	// 构建 API 路径，包含应用名称和端口参数
-	path := fmt.Sprintf("/costrict/api/v1/services/%s/close", serviceName)
-
-	// 尝试调用 costrict 的 RESTful API DELETE 方法
-	resp, err := rpcClient.Post(path, nil)
+	// 尝试调用 costrict 的 RESTful API
+	resp, err := rpcClient.Post(fmt.Sprintf("/costrict/api/v1/services/%s/close", serviceName), nil)
 	if err != nil {
-		log.Printf("Failed to call costrict API: %v", err)
-		return false
+		fmt.Printf("Failed to call costrict API: %v\n", err)
+		return
 	}
 
+	// 检查响应状态码
 	// 检查HTTP状态码是否在200-299范围内
 	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
-		if resp.Body != nil {
-			if message, msgExists := resp.Body["message"]; msgExists {
-				if messageStr, ok := message.(string); ok {
-					fmt.Printf("Successfully stopped tunnel via costrict server: %s\n", messageStr)
-					return true
-				}
-			}
-		}
-		// 即使没有message字段，只要状态码在200-299范围内，也认为成功
-		fmt.Printf("Successfully stopped tunnel via costrict server, status code: %d\n", resp.StatusCode)
-		return true
+		fmt.Printf("Successfully closed tunnel, status code: %d\n", resp.StatusCode)
+		return
 	}
 
 	// 如果响应中包含错误信息
-	if resp.Body != nil {
-		if errorMsg, exists := resp.Body["error"]; exists {
-			if errorStr, ok := errorMsg.(string); ok {
-				log.Printf("Costrict API returned error: %s", errorStr)
-			}
-		}
+	if resp.Error != "" {
+		fmt.Printf("Costrict API returned error: %s\n", resp.Error)
+		return
 	}
 
-	log.Printf("Unexpected response from costrict API")
-	return false
+	fmt.Printf("Unexpected response from costrict API\n")
 }
 
 func init() {

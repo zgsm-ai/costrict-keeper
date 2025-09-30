@@ -45,6 +45,7 @@ type HTTPResponse struct {
 	StatusCode int                    `json:"status_code"`
 	Headers    map[string][]string    `json:"headers"`
 	Body       map[string]interface{} `json:"body"`
+	Text       string                 `json:"text"`
 	Error      string                 `json:"error"`
 }
 
@@ -123,19 +124,20 @@ func deserializeResponse(resp *http.Response) (*HTTPResponse, error) {
 	if len(body) == 0 {
 		return httpResp, nil
 	}
-
+	httpResp.Text = string(body)
 	// 尝试解析JSON
 	if err := json.Unmarshal(body, &httpResp.Body); err != nil {
-		// 如果JSON解析失败，将原始响应体作为字符串保存
-		httpResp.Body = map[string]interface{}{
-			"raw_response": string(body),
+		httpResp.Error = err.Error()
+	} else {
+		if errorMsg, exists := httpResp.Body["error"]; exists {
+			if errorStr, ok := errorMsg.(string); ok {
+				httpResp.Error = errorStr
+			}
 		}
 	}
-
 	return httpResp, nil
 }
 
-// GetSocketPath 获取Unix socket的完整路径
 /**
  * Get full path for Unix socket
  * @param {string} socketName - Name of the socket file

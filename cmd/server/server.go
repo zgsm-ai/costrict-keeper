@@ -66,6 +66,7 @@ func startServer() error {
 		return fmt.Errorf("failed to ensure single instance: %w", err)
 	}
 	config.ReloadConfig(true)
+	config.LoadSpec()
 	// Determine listening address: prioritize command line arguments, then use configuration file
 	address := config.App().Listen
 	if listenAddr != "" {
@@ -76,31 +77,34 @@ func startServer() error {
 	}
 	env.Daemon = true
 
-	svc := services.NewServer(config.App())
-	svc.StartAllService()
+	server := services.NewServer(config.App())
+	if err := server.Init(); err != nil {
+		return err
+	}
+	server.StartAllService()
 	// Initialize services
 	router := gin.Default()
 	// 添加指标统计中间件
 	router.Use(middleware.MetricsMiddleware())
 
-	apiController := controllers.NewAPIController(svc)
+	apiController := controllers.NewAPIController(server)
 	apiController.RegisterRoutes(router)
 
 	// Register tunnel management routes
-	serviceController := controllers.NewServiceController(svc.Services())
+	serviceController := controllers.NewServiceController(server.Services())
 	serviceController.RegisterRoutes(router)
 
-	componentController := controllers.NewComponentController(svc.Components())
+	componentController := controllers.NewComponentController(server.Components())
 	componentController.RegisterRoutes(router)
 
 	// Register swagger routes
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Start all services, monitoring and log reporting
-	go svc.StartMonitoring()
-	go svc.StartReportMetrics()
-	go svc.StartLogReporting()
-	go svc.StartMidnightRooster()
+	go server.StartMonitoring()
+	go server.StartReportMetrics()
+	go server.StartLogReporting()
+	go server.StartMidnightRooster()
 
 	// Create listeners for both TCP and Unix socket
 	listenerConfig := &ListenerConfig{
@@ -162,7 +166,7 @@ func startServer() error {
 	}
 
 	// Gracefully shutdown other services
-	svc.StopAllService(ctx)
+	server.StopAllService(ctx)
 	services.UpdateCostrictStatus("exited")
 	cleanupPidFile()
 

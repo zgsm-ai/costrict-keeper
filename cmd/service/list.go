@@ -2,11 +2,13 @@ package service
 
 import (
 	"context"
-	"costrict-keeper/internal/config"
-	"costrict-keeper/internal/utils"
-	"costrict-keeper/services"
+	"encoding/json"
 	"fmt"
 	"os"
+
+	"costrict-keeper/internal/models"
+	"costrict-keeper/internal/rpc"
+	"costrict-keeper/internal/utils"
 
 	"github.com/iancoleman/orderedmap"
 	"github.com/spf13/cobra"
@@ -18,9 +20,7 @@ var listCmd = &cobra.Command{
 	Long:  "View running status of all services. If service name is specified, only show detailed information of that service.",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := showServiceStatus(context.Background(), args); err != nil {
-			fmt.Println(err)
-		}
+		showServiceStatus(context.Background(), args)
 	},
 }
 
@@ -37,77 +37,106 @@ var listCmd = &cobra.Command{
  * - Configuration loading errors
  * - Service status checking errors
  */
-func showServiceStatus(ctx context.Context, args []string) error {
-	// Load system configuration
-	if err := config.LoadSpec(); err != nil {
-		fmt.Printf("Failed to load system configuration: %v\n", err)
-		return err
-	}
-	manager := services.GetServiceManager()
+func showServiceStatus(ctx context.Context, args []string) {
+	rpcClient := rpc.NewHTTPClient(nil)
+
 	if len(args) == 0 {
-		// Display all services status
-		return showAllServicesStatus(manager)
+		// Display all services status via HTTP request
+		showAllServices(rpcClient)
 	} else {
-		// Display detailed information of specified service
-		return showSpecificServiceStatus(manager, args[0])
+		// Display detailed information of specified service via HTTP request
+		showSpecificService(rpcClient, args[0])
 	}
 }
 
 type Service_Columns struct {
 	Name      string
-	Protocol  string
 	Port      int
 	Startup   string
 	Status    string
 	Pid       int
 	Healthy   string
-	TunPort   int
+	TunPid    string
+	TunPort   string
 	TunStatus string
 	StartTime string
 }
 
 /**
- * Show all services status with detailed information
- * @param {spec *models.SystemSpecification} System configuration
- * @returns {error} Returns error if showing status fails, nil on success
+ * Show all services status via HTTP request
+ * @param {rpc.HTTPClient} client - HTTP client for API requests
+ * @returns {error} Returns error if request fails, nil on success
  * @description
- * - Lists all services with status information
- * - Uses tabwriter for formatted output
+ * - Sends GET request to /costrict/api/v1/services endpoint
+ * - Parses and displays service information in tabular format
+ * - Handles connection errors and API response errors
+ * @throws
+ * - HTTP request errors
+ * - JSON parsing errors
+ * - Response processing errors
  */
-func showAllServicesStatus(manager *services.ServiceManager) error {
-	svcs := manager.GetInstances(true)
-	if len(svcs) == 0 {
+func showAllServices(client rpc.HTTPClient) error {
+	resp, err := client.Get("/costrict/api/v1/services", nil)
+	if err != nil {
+		fmt.Printf("Failed to call costrict API: %v\n", err)
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.Error != "" {
+			fmt.Printf("Costrict API returned error: %s\n", resp.Error)
+			return fmt.Errorf("API error: %s", resp.Error)
+		}
+		fmt.Printf("Unexpected response from costrict API (status: %d)\n", resp.StatusCode)
+		return fmt.Errorf("unexpected response status: %d", resp.StatusCode)
+	}
+
+	var services []models.ServiceDetail
+	if err := json.Unmarshal([]byte(resp.Text), &services); err != nil {
+		fmt.Printf("Failed to unmarshal service list: %v\n", err)
+		return err
+	}
+
+	if len(services) == 0 {
 		fmt.Println("No services found")
 		return nil
 	}
 
 	var dataList []*orderedmap.OrderedMap
-	for _, svc := range svcs {
-		detail := svc.GetDetail()
+	for _, svc := range services {
 		row := Service_Columns{}
 		row.Name = svc.Name
-		row.Protocol = detail.Spec.Protocol
-		row.Startup = detail.Spec.Startup
-		row.Port = svc.Port
 		row.Status = string(svc.Status)
 		row.Pid = svc.Pid
+		row.Port = svc.Port
 		row.StartTime = svc.StartTime
-		if running, err := utils.IsProcessRunning(row.Pid); err == nil && running {
+		row.Startup = svc.Spec.Startup
+		if svc.Healthy {
 			row.Healthy = "Y"
 		} else {
 			row.Healthy = "N"
 		}
-		tun := svc.GetTunnel()
-		if tun != nil {
-			row.TunPort = tun.Pairs[0].MappingPort
-			if running, err := utils.IsProcessRunning(tun.Pid); err == nil && running {
-				row.TunStatus = "Opened"
+		if svc.Tunnel == nil {
+			if svc.Spec.Accessible == "remote" {
+				row.TunPid = "0"
+				row.TunPort = "0"
+				row.TunStatus = "Closed"
+			} else {
+				row.TunPid = "-"
+				row.TunPort = "-"
+				row.TunStatus = "-"
+			}
+		} else {
+			row.TunPid = fmt.Sprint(svc.Tunnel.Pid)
+			row.TunPort = fmt.Sprint(svc.Tunnel.Pairs[0].MappingPort)
+			if svc.Tunnel.Status == models.StatusRunning {
+				if svc.Tunnel.Healthy {
+					row.TunStatus = "Opened"
+				} else {
+					row.TunStatus = "Unhealthy"
+				}
 			} else {
 				row.TunStatus = "Closed"
 			}
-		} else {
-			row.TunPort = 0
-			row.TunStatus = "Nothing"
 		}
 
 		recordMap, _ := utils.StructToOrderedMap(row)
@@ -129,27 +158,80 @@ func showAllServicesStatus(manager *services.ServiceManager) error {
  * @throws
  * - Service not found errors
  */
-func showSpecificServiceStatus(manager *services.ServiceManager, name string) error {
-	svc := manager.GetSelf()
-	if name != services.COSTRICT_NAME {
-		svc = manager.GetInstance(name)
-		if svc == nil {
-			fmt.Printf("Service named '%s' not found\n", name)
-			return os.ErrNotExist
-		}
+/**
+ * Show specific service details via HTTP request
+ * @param {rpc.HTTPClient} client - HTTP client for API requests
+ * @param {string} name - Name of the service to get details for
+ * @returns {error} Returns error if request fails, nil on success
+ * @description
+ * - Sends GET request to /costrict/api/v1/services/{name} endpoint
+ * - Parses and displays detailed service information
+ * - Handles connection errors and API response errors
+ * @throws
+ * - HTTP request errors
+ * - JSON parsing errors
+ * - Response processing errors
+ */
+/**
+ * Get service detail from API
+ * @param {rpc.HTTPClient} client - HTTP client for API requests
+ * @param {string} name - Name of the service to get details for
+ * @returns {models.ServiceDetail} Service detail information
+ * @returns {error} Returns error if request fails, nil on success
+ * @description
+ * - Sends GET request to /costrict/api/v1/services/{name} endpoint
+ * - Returns parsed service detail information
+ * - Handles connection errors and API response errors
+ * @throws
+ * - HTTP request errors
+ * - JSON parsing errors
+ * - Response processing errors
+ */
+func getServiceDetail(client rpc.HTTPClient, name string) (*models.ServiceDetail, error) {
+	resp, err := client.Get(fmt.Sprintf("/costrict/api/v1/services/%s", name), nil)
+	if err != nil {
+		fmt.Printf("Failed to call costrict API: %v\n", err)
+		return nil, err
 	}
-	detail := svc.GetDetail()
-	component := detail.Component
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.Error != "" {
+			fmt.Printf("Costrict API returned error: %s\n", resp.Error)
+			return nil, fmt.Errorf("API error: %s", resp.Error)
+		}
+		if resp.StatusCode == 404 {
+			fmt.Printf("Service named '%s' not found\n", name)
+			return nil, os.ErrNotExist
+		}
+		fmt.Printf("Unexpected response from costrict API (status: %d)\n", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected response status: %d", resp.StatusCode)
+	}
 
+	var detail models.ServiceDetail
+	if err := json.Unmarshal([]byte(resp.Text), &detail); err != nil {
+		fmt.Printf("Failed to unmarshal service detail: %v\n", err)
+		return nil, err
+	}
+
+	return &detail, nil
+}
+
+/**
+ * Display service detail information
+ * @param {models.ServiceDetail} detail - Service detail information to display
+ * @param {string} name - Name of the service
+ * @description
+ * - Displays detailed service information in formatted output
+ * - Shows basic info, process info, version info, and tunnel info
+ */
+func displayServiceDetail(detail *models.ServiceDetail, name string) {
 	fmt.Printf("=== Detailed information of service '%s' ===\n", name)
-	fmt.Printf("Name: %s\n", svc.Name)
-	fmt.Printf("Running status: %s\n", svc.Status)
-	fmt.Printf("Port: %d\n", svc.Port)
-	fmt.Printf("PID: %d\n", svc.Pid)
-	fmt.Printf("Start time: %s\n", svc.StartTime)
+	fmt.Printf("Name: %s\n", detail.Name)
+	fmt.Printf("Running status: %s\n", detail.Status)
+	fmt.Printf("Port: %d\n", detail.Port)
+	fmt.Printf("PID: %d\n", detail.Pid)
+	fmt.Printf("Start time: %s\n", detail.StartTime)
 	fmt.Printf("Startup command: %s\n", detail.Process.Command)
 	fmt.Printf("Startup args: %+v\n", detail.Process.Args)
-
 	fmt.Printf("Startup mode: %s\n", detail.Spec.Startup)
 	fmt.Printf("Protocol: %s\n", detail.Spec.Protocol)
 	if detail.Spec.Metrics != "" {
@@ -158,34 +240,54 @@ func showSpecificServiceStatus(manager *services.ServiceManager, name string) er
 	if detail.Spec.Accessible != "" {
 		fmt.Printf("Access permission: %s\n", detail.Spec.Accessible)
 	}
+
 	// Display version information
-	if component != nil {
-		fmt.Printf("Local version: %s\n", component.LocalVersion)
-		fmt.Printf("Latest server version: %s\n", component.RemoteVersion)
+	if detail.Component != nil {
+		fmt.Printf("Local version: %s\n", detail.Component.Local.Version)
+		if detail.Component.Remote.Newest != "" {
+			fmt.Printf("Latest server version: %s\n", detail.Component.Remote.Newest)
+		} else {
+			fmt.Printf("Latest server version: Unable to retrieve\n")
+		}
 	} else {
 		fmt.Printf("Local version: Not installed\n")
 		fmt.Printf("Latest server version: Unable to retrieve\n")
 	}
 
 	// Display endpoint URL
-	if detail.Spec.Protocol != "" && svc.Port > 0 {
-		endpointURL := fmt.Sprintf("%s://localhost:%d", detail.Spec.Protocol, svc.Port)
+	if detail.Spec.Protocol != "" && detail.Port > 0 {
+		endpointURL := fmt.Sprintf("%s://localhost:%d", detail.Spec.Protocol, detail.Port)
 		fmt.Printf("Access URL: %s\n", endpointURL)
 	}
-	tun := svc.GetTunnel()
-	if tun != nil {
-		fmt.Printf("Local Port: %d\n", tun.Pairs[0].LocalPort)
-		fmt.Printf("Mapping Port: %d\n", tun.Pairs[0].MappingPort)
-		fmt.Printf("Tunnel PID: %d\n", tun.Pid)
-		if running, err := utils.IsProcessRunning(tun.Pid); err == nil && running {
-			fmt.Printf("Tunnel Process: running\n")
-		} else {
-			fmt.Printf("Tunnel Process: dead\n")
-		}
-	} else {
-		fmt.Printf("Tunnel closed\n")
-	}
 
+	if len(detail.Tunnel.Pairs) > 0 {
+		fmt.Printf("Local Port: %d\n", detail.Tunnel.Pairs[0].LocalPort)
+		fmt.Printf("Mapping Port: %d\n", detail.Tunnel.Pairs[0].MappingPort)
+	}
+	fmt.Printf("Tunnel PID: %d\n", detail.Tunnel.Pid)
+	fmt.Printf("Tunnel Status: %s\n", detail.Tunnel.Status)
+}
+
+/**
+ * Show specific service details via HTTP request
+ * @param {rpc.HTTPClient} client - HTTP client for API requests
+ * @param {string} name - Name of the service to get details for
+ * @returns {error} Returns error if request fails, nil on success
+ * @description
+ * - Gets service detail via HTTP request
+ * - Displays detailed service information
+ * - Handles connection errors and API response errors
+ * @throws
+ * - HTTP request errors
+ * - JSON parsing errors
+ * - Response processing errors
+ */
+func showSpecificService(client rpc.HTTPClient, name string) error {
+	detail, err := getServiceDetail(client, name)
+	if err != nil {
+		return err
+	}
+	displayServiceDetail(detail, name)
 	return nil
 }
 

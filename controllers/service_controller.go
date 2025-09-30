@@ -63,11 +63,15 @@ func (s *ServiceController) RegisterRoutes(r *gin.Engine) {
 //	@Tags			Services
 //	@Accept			json
 //	@Produce		json
-//	@Success		200	{array}		services.ServiceInstance	"List of service instances"
+//	@Success		200	{array}		services.ServiceDetail	"List of service instances"
 //	@Failure		500	{object}	models.ErrorResponse		"Internal server error response"
 //	@Router			/costrict/api/v1/services [get]
 func (s *ServiceController) ListServices(c *gin.Context) {
-	c.JSON(200, s.service.GetInstances(false))
+	var results []models.ServiceDetail
+	for _, svc := range s.service.GetInstances(true) {
+		results = append(results, svc.GetDetail())
+	}
+	c.JSON(200, results)
 }
 
 // RestartService restarts a specific service by name
@@ -85,11 +89,22 @@ func (s *ServiceController) ListServices(c *gin.Context) {
 func (s *ServiceController) RestartService(c *gin.Context) {
 	name := c.Param("name")
 
-	if err := s.service.RestartService(c.Request.Context(), name); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	svc := s.service.GetInstance(name)
+	if svc == nil {
+		c.JSON(404, &models.ErrorResponse{
+			Code:  "service.notexist",
+			Error: fmt.Sprintf("service [%s] isn't exist", name),
+		})
 		return
 	}
-	c.JSON(200, gin.H{"status": "success"})
+	if err := s.service.RestartService(c.Request.Context(), name); err != nil {
+		c.JSON(500, &models.ErrorResponse{
+			Error: err.Error(),
+		})
+		return
+	}
+
+	c.JSON(200, svc.GetDetail())
 }
 
 // StartService starts a specific service by name
@@ -107,11 +122,21 @@ func (s *ServiceController) RestartService(c *gin.Context) {
 func (s *ServiceController) StartService(c *gin.Context) {
 	name := c.Param("name")
 
-	if err := s.service.StartService(c.Request.Context(), name); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	svc := s.service.GetInstance(name)
+	if svc == nil {
+		c.JSON(404, &models.ErrorResponse{
+			Error: fmt.Sprintf("service [%s] isn't exist", name),
+		})
 		return
 	}
-	c.JSON(200, gin.H{"status": "success"})
+	if err := s.service.StartService(c.Request.Context(), name); err != nil {
+		c.JSON(500, &models.ErrorResponse{
+			Error: err.Error(),
+		})
+		return
+	}
+	// 获取启动后的服务详细信息
+	c.JSON(200, svc.GetDetail())
 }
 
 // StopService stops a specific service by name
@@ -134,8 +159,17 @@ func (s *ServiceController) StopService(c *gin.Context) {
 		os.Exit(0)
 		return
 	}
+	svc := s.service.GetInstance(name)
+	if svc == nil {
+		c.JSON(404, &models.ErrorResponse{
+			Error: fmt.Sprintf("service [%s] isn't exist", name),
+		})
+		return
+	}
 	if err := s.service.StopService(name); err != nil {
-		c.JSON(404, gin.H{"error": err.Error()})
+		c.JSON(404, &models.ErrorResponse{
+			Error: err.Error(),
+		})
 		return
 	}
 	c.JSON(200, gin.H{"status": "success"})
@@ -158,7 +192,9 @@ func (s *ServiceController) OpenTunnel(c *gin.Context) {
 
 	svc := s.service.GetInstance(name)
 	if svc == nil {
-		c.JSON(404, gin.H{"error": fmt.Sprintf("service [%s] isn't exist", name)})
+		c.JSON(404, &models.ErrorResponse{
+			Error: fmt.Sprintf("service [%s] isn't exist", name),
+		})
 		return
 	}
 	if err := svc.OpenTunnel(context.Background()); err != nil {
@@ -168,7 +204,7 @@ func (s *ServiceController) OpenTunnel(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, svc.GetTunnel())
+	c.JSON(http.StatusOK, svc.GetTunnel().GetDetail())
 }
 
 // CloseTunnel closes application's reverse tunnel
@@ -179,7 +215,7 @@ func (s *ServiceController) OpenTunnel(c *gin.Context) {
 //	@Accept			json
 //	@Produce		json
 //	@Param			name	path		string					true	"Service name"
-//	@Success		200		{object}	models.TunnelResponse	"Tunnel close operation success response"
+//	@Success		200		{object}	map[string]interface{}	"Tunnel close operation success response"
 //	@Failure		404		{object}	models.ErrorResponse	"Service not found error response"
 //	@Failure		500		{object}	models.ErrorResponse	"Internal server error response"
 //	@Router			/costrict/api/v1/services/{name}/close [post]
@@ -188,21 +224,21 @@ func (s *ServiceController) CloseTunnel(c *gin.Context) {
 
 	svc := s.service.GetInstance(name)
 	if svc == nil {
-		c.JSON(404, gin.H{"error": fmt.Sprintf("service [%s] isn't exist", name)})
+		c.JSON(404, &models.ErrorResponse{
+			Code:  "service.notexist",
+			Error: fmt.Sprintf("service [%s] isn't exist", name),
+		})
 		return
 	}
 	if err := svc.CloseTunnel(); err != nil {
 		c.JSON(http.StatusInternalServerError, &models.ErrorResponse{
+			Code:  "tunnel.close_failed",
 			Error: err.Error(),
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, &models.TunnelResponse{
-		AppName: name,
-		Status:  "success",
-		Message: fmt.Sprintf("Successfully closed tunnel for app %s", name),
-	})
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
 // ReopenTunnel restarts application's reverse tunnel
@@ -213,7 +249,7 @@ func (s *ServiceController) CloseTunnel(c *gin.Context) {
 //	@Accept			json
 //	@Produce		json
 //	@Param			name	path		string					true	"Service name"
-//	@Success		200		{object}	models.TunnelResponse	"Tunnel restart operation success response"
+//	@Success		200		{object}	services.TunnelInstance	"Tunnel Instance"
 //	@Failure		404		{object}	models.ErrorResponse	"Service not found error response"
 //	@Failure		500		{object}	models.ErrorResponse	"Internal server error response"
 //	@Router			/costrict/api/v1/services/{name}/reopen [post]
@@ -222,7 +258,9 @@ func (s *ServiceController) ReopenTunnel(c *gin.Context) {
 
 	svc := s.service.GetInstance(name)
 	if svc == nil {
-		c.JSON(404, gin.H{"error": fmt.Sprintf("service [%s] isn't exist", name)})
+		c.JSON(404, &models.ErrorResponse{
+			Error: fmt.Sprintf("service [%s] isn't exist", name),
+		})
 		return
 	}
 	if err := svc.ReopenTunnel(context.Background()); err != nil {
@@ -231,12 +269,7 @@ func (s *ServiceController) ReopenTunnel(c *gin.Context) {
 		})
 		return
 	}
-
-	c.JSON(http.StatusOK, &models.TunnelResponse{
-		AppName: name,
-		Status:  "success",
-		Message: fmt.Sprintf("Successfully reopen tunnel for app %s", name),
-	})
+	c.JSON(http.StatusOK, svc.GetTunnel().GetDetail())
 }
 
 // GetService gets detailed information of a specific service by name
@@ -260,5 +293,8 @@ func (s *ServiceController) GetService(c *gin.Context) {
 		return
 	}
 
-	c.JSON(404, gin.H{"error": "service not found"})
+	c.JSON(404, &models.ErrorResponse{
+		Code:  "service.notexist",
+		Error: fmt.Sprintf("service [%s] isn't exist", name),
+	})
 }

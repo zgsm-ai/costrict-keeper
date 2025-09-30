@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"costrict-keeper/internal/models"
 	"costrict-keeper/services"
 
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,7 @@ func (c *ComponentController) RegisterRoutes(r *gin.Engine) {
 	api := r.Group("/costrict/api/v1")
 	// 组件管理接口
 	api.GET("/components", c.ListComponents)
+	api.GET("/components/:name", c.GetComponentDetail)
 	api.POST("/components/:name/upgrade", c.UpgradeComponent)
 	api.DELETE("/components/:name", c.DeleteComponent)
 }
@@ -50,10 +52,13 @@ func (c *ComponentController) RegisterRoutes(r *gin.Engine) {
 // @Description 获取所有已安装组件信息
 // @Tags Components
 // @Produce json
-// @Success 200 {array} services.ComponentInstance
+// @Success 200 {array} models.ComponentDetail
 // @Router /costrict/api/v1/components [get]
 func (c *ComponentController) ListComponents(g *gin.Context) {
-	components := c.component.GetComponents(true)
+	var components []models.ComponentDetail
+	for _, ci := range c.component.GetComponents(true, true) {
+		components = append(components, ci.GetDetail())
+	}
 	g.JSON(200, components)
 }
 
@@ -81,6 +86,26 @@ func (c *ComponentController) UpgradeComponent(g *gin.Context) {
 		return
 	}
 	g.JSON(200, gin.H{"status": "success"})
+}
+
+// @Summary 获取组件详情
+// @Description 根据组件名称获取指定组件的详细信息
+// @Tags Components
+// @Param name path string true "组件名称"
+// @Success 200 {object} models.ComponentDetail
+// @Failure 404 {object} map[string]interface{} "{"code": "component.not_found", "message": "Component not found"}"
+// @Router /costrict/api/v1/components/{name} [get]
+func (c *ComponentController) GetComponentDetail(g *gin.Context) {
+	name := g.Param("name")
+	ci := c.component.GetComponent(name)
+	if ci == nil {
+		g.JSON(404, gin.H{
+			"code":    "component.not_found",
+			"message": "Component not found",
+		})
+		return
+	}
+	g.JSON(200, ci.GetDetail())
 }
 
 // @Summary 删除组件

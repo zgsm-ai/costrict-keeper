@@ -7,7 +7,6 @@ import (
 	"costrict-keeper/internal/utils"
 	"costrict-keeper/services"
 	"fmt"
-	"os"
 
 	"github.com/iancoleman/orderedmap"
 	"github.com/spf13/cobra"
@@ -19,9 +18,12 @@ var listCmd = &cobra.Command{
 	Long:  "List information of all components, including local version and latest server version. If component name is specified, only show detailed information of that component.",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := listInfo(context.Background(), args); err != nil {
-			fmt.Println(err)
+		if err := config.LoadLocalSpec(); err != nil {
+			fmt.Printf("Costrict is uninitialized")
+			return
 		}
+
+		listInfo(context.Background(), args)
 	},
 }
 
@@ -39,17 +41,17 @@ var listCmd = &cobra.Command{
  * - Configuration loading errors
  * - Version checking errors
  */
-func listInfo(ctx context.Context, args []string) error {
+func listInfo(ctx context.Context, args []string) {
 	fmt.Printf("------------------------------------------\n")
 	fmt.Printf("Base URL: %s\n", config.GetBaseURL())
 	fmt.Printf("Local: %s\n", env.CostrictDir)
 	fmt.Printf("------------------------------------------\n")
 	if len(args) == 0 {
 		// List all components information
-		return listAllComponents()
+		listAllComponents()
 	} else {
 		// List detailed information of specified component
-		return listSpecificComponent(args[0])
+		listSpecificComponent(args[0])
 	}
 }
 
@@ -72,30 +74,31 @@ type Component_Columns struct {
  * - Lists components with local and remote versions
  * - Uses tabwriter for formatted output
  */
-func listAllComponents() error {
+func listAllComponents() {
 	manager := services.GetComponentManager()
-	components := manager.GetComponents(true)
+	manager.Init()
+	components := manager.GetComponents(true, true)
 	if len(components) == 0 {
 		fmt.Println("No components found")
-		return nil
+		return
 	}
 	var dataList []*orderedmap.OrderedMap
-	for _, comp := range components {
+	for _, ci := range components {
+		cpn := ci.GetDetail()
 		row := Component_Columns{}
-		row.Name = comp.Spec.Name
+		row.Name = cpn.Spec.Name
 		row.Path = "-"
-		row.Local = comp.LocalVersion
-		row.Remote = comp.RemoteVersion
-		if comp.RemotePlatform != nil {
-			row.Path = comp.RemotePlatform.Newest.AppUrl
+		row.Local = cpn.Local.Version
+		row.Remote = cpn.Remote.Newest
+		if cpn.Installed {
+			row.Path = cpn.Local.FileName
+			row.Description = cpn.Local.Description
 		}
-
 		recordMap, _ := utils.StructToOrderedMap(row)
 		dataList = append(dataList, recordMap)
 	}
 
 	utils.PrintFormat(dataList)
-	return nil
 }
 
 /**
@@ -109,29 +112,29 @@ func listAllComponents() error {
  * @throws
  * - Component not found errors
  */
-func listSpecificComponent(name string) error {
+func listSpecificComponent(name string) {
 	manager := services.GetComponentManager()
-	cpn := manager.GetSelf()
-	if name != services.COSTRICT_NAME {
-		cpn = manager.GetComponent(name)
-		if cpn == nil {
-			fmt.Printf("Component named '%s' not found\n", name)
-			return os.ErrNotExist
-		}
+	manager.Init()
+
+	ci := manager.GetComponent(name)
+	if ci == nil {
+		fmt.Printf("Component '%s' not found\n", name)
+		return
 	}
+	cpn := ci.GetDetail()
 	spec := &cpn.Spec
 	fmt.Printf("=== Detailed information of component '%s' ===\n", name)
 	fmt.Printf("Name: %s\n", name)
 	fmt.Printf("Need upgrade: %v\n", cpn.NeedUpgrade)
 
 	// Display version information
-	if cpn.LocalVersion != "" {
-		fmt.Printf("Local version: %s\n", cpn.LocalVersion)
+	if cpn.Local.Version != "" {
+		fmt.Printf("Local version: %s\n", cpn.Local.Version)
 	} else {
 		fmt.Printf("Local version: Not installed\n")
 	}
-	if cpn.RemoteVersion != "" {
-		fmt.Printf("Latest server version: %s\n", cpn.RemoteVersion)
+	if cpn.Remote.Newest != "" {
+		fmt.Printf("Latest server version: %s\n", cpn.Remote.Newest)
 	} else {
 		fmt.Printf("Latest server version: Unable to retrieve\n")
 	}
@@ -146,7 +149,6 @@ func listSpecificComponent(name string) error {
 			fmt.Printf("Maximum supported version: %s\n", spec.Upgrade.Highest)
 		}
 	}
-	return nil
 }
 
 func init() {

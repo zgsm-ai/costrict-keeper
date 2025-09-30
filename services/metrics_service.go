@@ -98,25 +98,26 @@ func collectMetricsFromComponents() error {
 
 	// Collect metrics for each service
 	services := sm.GetInstances(true)
-	for _, svc := range services {
+	for _, service := range services {
 		// Set component health status (1: healthy, 0: unhealthy)
+		svc := service.GetDetail()
 		healthStatus := 0.0
-		if svc.component != nil && svc.component.Installed {
+		if svc.Component != nil && svc.Component.Installed {
 			healthStatus = 1.0
 		}
-		component := svc.component
-		if component != nil {
-			serviceHealthStatus.WithLabelValues(svc.Name, component.LocalVersion).Set(healthStatus)
+		cpn := svc.Component
+		if cpn != nil {
+			serviceHealthStatus.WithLabelValues(svc.Name, cpn.Local.Version).Set(healthStatus)
 
-			// Set component version info (using value 1 as placeholder since version is already in label)
-			componentVersionInfo.WithLabelValues(svc.Name, component.LocalVersion).Set(1.0)
+			// Set cpn version info (using value 1 as placeholder since version is already in label)
+			componentVersionInfo.WithLabelValues(svc.Name, cpn.Local.Version).Set(1.0)
 
 			logger.Debugf("Collected metrics for component %s, version: %s, installed: %v",
-				svc.Name, component.LocalVersion, component.Installed)
+				svc.Name, cpn.Local.Version, cpn.Installed)
 		}
 
 		// Check if svc is healthy
-		isHealthy := svc.IsHealthy()
+		isHealthy := service.IsHealthy()
 		healthValue := 0.0
 		if isHealthy {
 			healthValue = 1.0
@@ -124,8 +125,8 @@ func collectMetricsFromComponents() error {
 		serviceHealthStatus.WithLabelValues(svc.Name, "unknown").Set(healthValue)
 
 		// If svc has metrics endpoint, try to collect additional metrics
-		if svc.spec.Metrics != "" && svc.Port > 0 {
-			if err := collectServiceMetrics(svc.spec); err != nil {
+		if svc.Spec.Metrics != "" && svc.Port > 0 {
+			if err := collectServiceMetrics(svc.Spec); err != nil {
 				logger.Warnf("Failed to collect metrics from service %s: %v", svc.Name, err)
 			}
 		}

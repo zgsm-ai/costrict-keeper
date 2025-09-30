@@ -28,16 +28,15 @@ const (
  * @property {models.ServiceSpecification} config - Service configuration
  */
 type ServiceInstance struct {
-	Name      string           `json:"name"`
-	Pid       int              `json:"pid"`
-	Port      int              `json:"port"`
-	Status    models.RunStatus `json:"status"`
-	StartTime string           `json:"startTime"`
+	Name      string
+	Status    models.RunStatus
+	StartTime string
 
 	spec        models.ServiceSpecification
 	component   *ComponentInstance
 	proc        *ProcessInstance
 	tun         *TunnelInstance
+	port        int
 	failedCount int  //检测失败，连续三次检测失败，需要重启服务
 	child       bool //被本进程直接管理控制的子服务
 }
@@ -50,18 +49,6 @@ type ServiceCache struct {
 	StartTime string           `json:"startTime"`
 }
 
-type ServiceDetail struct {
-	Name      string                      `json:"name"`
-	Pid       int                         `json:"pid"`
-	Port      int                         `json:"port"`
-	Status    models.RunStatus            `json:"status"`
-	StartTime string                      `json:"startTime"`
-	Spec      models.ServiceSpecification `json:"spec"`
-	Tunnel    *TunnelInstance             `json:"tunnel,omitempty"`
-	Process   *ProcessInstance            `json:"process,omitempty"`
-	Component *ComponentInstance          `json:"component,omitempty"`
-}
-
 type ServiceArgs struct {
 	LocalPort   int
 	ProcessPath string
@@ -70,7 +57,7 @@ type ServiceArgs struct {
 
 type ServiceManager struct {
 	cm       *ComponentManager
-	self     ServiceInstance
+	self     *ServiceInstance
 	services map[string]*ServiceInstance
 }
 
@@ -98,35 +85,23 @@ func GetServiceManager() *ServiceManager {
 		services: make(map[string]*ServiceInstance),
 		cm:       GetComponentManager(),
 	}
-	for _, svc := range config.Spec().Services {
-		instance := &ServiceInstance{
-			Name:      svc.Name,
-			Pid:       0,
-			Status:    models.StatusExited,
-			spec:      svc,
-			component: sm.cm.GetComponent(svc.Name),
-			child:     true,
-		}
-		sm.services[svc.Name] = instance
-	}
-	for _, svc := range sm.services {
-		svc.loadService()
-	}
-	sm.self.Name = COSTRICT_NAME
-	sm.self.Status = models.StatusExited
-	sm.self.spec = config.Spec().Manager.Service
-	sm.self.component = sm.cm.GetSelf()
-	sm.self.child = false
-	sm.self.loadService()
-	if env.Daemon {
-		sm.self.Pid = os.Getpid()
-		sm.self.Status = models.StatusRunning
-		sm.self.Port = env.ListenPort
-		sm.self.StartTime = time.Now().Format(time.RFC3339)
-		sm.self.saveService()
-	}
 	serviceManager = sm
 	return serviceManager
+}
+
+func newService(spec *models.ServiceSpecification, cpn *ComponentInstance, child bool) *ServiceInstance {
+	svc := &ServiceInstance{
+		Name:      spec.Name,
+		Status:    models.StatusExited,
+		spec:      *spec,
+		component: cpn,
+		child:     child,
+	}
+	svc.proc = svc.createProcessInstance()
+	if spec.Accessible == "remote" {
+		svc.tun = CreateTunnel(spec.Name, []int{spec.Port})
+	}
+	return svc
 }
 
 /**
@@ -143,47 +118,7 @@ func UpdateCostrictStatus(status string) {
 	svc := serviceManager.GetSelf()
 	svc.Status = models.RunStatus(status)
 	svc.saveService()
-}
-
-/**
- * Get self service knowledge information
- * @returns {ServiceKnowledge} Returns self service knowledge structure
- * @description
- * - Creates ServiceKnowledge structure for manager service
- * - Includes manager name, version, and installation status
- * - Uses current environment settings for port and status
- * - Used for system knowledge export and manager discovery
- * @private
- */
-func getSelfKnowledge() models.ServiceKnowledge {
-	spec := config.Spec().Manager.Service
-	component := GetComponentManager().GetSelf()
-	name := COSTRICT_NAME
-	if runtime.GOOS == "windows" {
-		name = fmt.Sprintf("%s.exe", name)
-	}
-	args := ServiceArgs{
-		LocalPort:   env.ListenPort,
-		ProcessName: name,
-		ProcessPath: filepath.Join(env.CostrictDir, "bin", name),
-	}
-	command, _, err := utils.GetCommandLine(spec.Command, spec.Args, args)
-	if err != nil {
-		command = name
-	}
-	return models.ServiceKnowledge{
-		Name:       COSTRICT_NAME,
-		Version:    component.LocalVersion,
-		Installed:  component.Installed,
-		Status:     "running",
-		Port:       env.ListenPort,
-		Startup:    spec.Startup,
-		Protocol:   spec.Protocol,
-		Command:    command,
-		Metrics:    spec.Metrics,
-		Healthy:    spec.Healthy,
-		Accessible: spec.Accessible,
-	}
+	serviceManager.export()
 }
 
 /**
@@ -195,25 +130,32 @@ func getSelfKnowledge() models.ServiceKnowledge {
  * - Includes service name, PID, port, status, and start time
  * - Includes service specification and tunnel information
  * - Used for API responses and detailed service views
- * @example
- * detail := serviceInstance.GetDetail()
- * fmt.Printf("Service %s is %s", detail.Name, detail.Status)
  */
-func (svc *ServiceInstance) GetDetail() ServiceDetail {
-	detail := &ServiceDetail{
+func (svc *ServiceInstance) GetDetail() models.ServiceDetail {
+	detail := &models.ServiceDetail{
 		Name:      svc.Name,
-		Pid:       svc.Pid,
-		Port:      svc.Port,
+		Port:      svc.port,
 		Status:    svc.Status,
 		StartTime: svc.StartTime,
 		Spec:      svc.spec,
-		Tunnel:    svc.tun,
-		Process:   svc.proc,
-		Component: svc.component,
 	}
-	if svc.proc == nil {
-		detail.Process, _ = svc.CreateProcessInstance()
+	if svc.spec.Accessible == "remote" {
+		tun := svc.tun.GetDetail()
+		detail.Tunnel = &tun
 	}
+	if !svc.child {
+		detail.Pid = os.Getpid()
+	} else {
+		detail.Pid = svc.proc.Pid
+	}
+	detail.Process = svc.proc.GetDetail()
+	if svc.component != nil {
+		cpn := svc.component.GetDetail()
+		detail.Component = &cpn
+	} else {
+		detail.Component = nil
+	}
+	detail.Healthy = svc.IsHealthy()
 	return *detail
 }
 
@@ -224,11 +166,6 @@ func (svc *ServiceInstance) GetDetail() ServiceDetail {
  * - Returns the process instance that runs this service
  * - Returns nil if service is not running or has no associated process
  * - Used to access process-level operations and information
- * @example
- * proc := serviceInstance.GetProc()
- * if proc != nil {
- *     fmt.Printf("Process PID: %d", proc.Pid)
- * }
  */
 func (svc *ServiceInstance) GetProc() *ProcessInstance {
 	return svc.proc
@@ -253,13 +190,10 @@ func (svc *ServiceInstance) IsHealthy() bool {
 		return false
 	}
 	// 如果端口不可用（已被占用），说明服务正在监听
-	if svc.Port > 0 {
-		return utils.CheckPortConnectable(svc.Port)
+	if svc.port > 0 {
+		return utils.CheckPortConnectable(svc.port)
 	}
-	if svc.Pid == 0 {
-		return false
-	}
-	running, err := utils.IsProcessRunning(svc.Pid)
+	running, err := utils.IsProcessRunning(svc.proc.Pid)
 	if err != nil || !running {
 		return false
 	}
@@ -278,28 +212,18 @@ func (svc *ServiceInstance) IsHealthy() bool {
  */
 func (svc *ServiceInstance) getKnowledge() models.ServiceKnowledge {
 	installed := false
-	version := "unknown"
-	component := GetComponentManager().GetComponent(svc.Name)
-	if component != nil {
-		version = component.LocalVersion
-		installed = component.Installed
+	version := ""
+	if svc.component != nil && svc.component.local != nil {
+		version = utils.PrintVersion(svc.component.local.VersionId)
+		installed = svc.component.installed
 	}
-	command := svc.Name
-	if svc.proc != nil {
-		command = svc.proc.Command
-	} else {
-		if runtime.GOOS == "windows" {
-			command = fmt.Sprintf("%s.exe", svc.Name)
-		}
-	}
-
 	return models.ServiceKnowledge{
 		Name:       svc.Name,
 		Version:    version,
 		Installed:  installed,
-		Command:    command,
+		Command:    svc.proc.Command,
 		Status:     string(svc.Status),
-		Port:       svc.Port,
+		Port:       svc.port,
 		Startup:    svc.spec.Startup,
 		Protocol:   svc.spec.Protocol,
 		Metrics:    svc.spec.Metrics,
@@ -333,10 +257,14 @@ func (svc *ServiceInstance) saveService() {
 
 	var cache ServiceCache
 	cache.Name = svc.Name
-	cache.Pid = svc.Pid
-	cache.Port = svc.Port
+	cache.Port = svc.port
 	cache.StartTime = svc.StartTime
 	cache.Status = svc.Status
+	if svc.child {
+		cache.Pid = svc.proc.Pid
+	} else {
+		cache.Pid = os.Getpid()
+	}
 
 	jsonData, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
@@ -352,123 +280,6 @@ func (svc *ServiceInstance) saveService() {
 	}
 
 	logger.Infof("Service [%s] info saved to %s", svc.Name, cacheFile)
-}
-
-/**
- * Load service information from cache file
- * @returns {error} Returns error if load fails, nil on success
- * @description
- * - Reads service information from cache file in .costrict/cache/services/
- * - Validates cache file name matches service name
- * - Updates service instance with cached PID, status, start time, and port
- * - Returns os.ErrNotExist if cache file doesn't exist
- * - Used for restoring service state after restart
- * @throws
- * - File read errors
- * - JSON unmarshaling errors
- * - Cache validation errors
- * @example
- * err := serviceInstance.loadService()
- * if err != nil && !errors.Is(err, os.ErrNotExist) {
- *     logger.Error("Failed to load service:", err)
- * }
- */
-func (svc *ServiceInstance) loadService() error {
-	cacheFile := filepath.Join(env.CostrictDir, "cache", "services", svc.Name+".json")
-
-	if _, err := os.Stat(cacheFile); os.IsNotExist(err) {
-		logger.Debugf("No cache file found for service %s, skipping", svc.Name)
-		return os.ErrNotExist
-	}
-
-	jsonData, err := os.ReadFile(cacheFile)
-	if err != nil {
-		logger.Errorf("Failed to read cache file for service %s: %v", svc.Name, err)
-		return err
-	}
-
-	var cached ServiceCache
-	if err := json.Unmarshal(jsonData, &cached); err != nil {
-		logger.Errorf("Failed to unmarshal cache data for service %s: %v", svc.Name, err)
-		return err
-	}
-
-	// 验证缓存的服务实例名称是否匹配
-	if cached.Name != svc.Name {
-		logger.Warnf("Cache file name mismatch for service %s (cached name: %s), skipping", svc.Name, cached.Name)
-		return fmt.Errorf("not matched")
-	}
-
-	// 更新服务实例状态
-	svc.Pid = cached.Pid
-	svc.Status = cached.Status
-	svc.StartTime = cached.StartTime
-	svc.Port = cached.Port
-
-	svc.attachProcess()
-	svc.attachTunnel()
-	return nil
-}
-
-/**
- * Attach to existing process for service
- * @returns {error} Returns error if attach fails, nil on success
- * @description
- * - Creates process instance for service if PID > 0
- * - Uses process manager to attach to existing process
- * - Updates service status based on attach result
- * - Marks service as exited if process not found
- * - Saves updated service state to cache
- * - Used for reconnecting to running processes after restart
- * @throws
- * - Process instance creation errors
- * - Process attachment errors
- * @example
- * err := serviceInstance.attachProcess()
- * if err != nil {
- *     logger.Error("Failed to attach to process:", err)
- * }
- */
-func (svc *ServiceInstance) attachProcess() error {
-	if svc.Pid <= 0 || !svc.child {
-		return nil
-	}
-	// 如果服务状态为running，尝试重新关联进程
-	var err error
-	if svc.proc, err = svc.CreateProcessInstance(); err != nil {
-		logger.Errorf("Service '%s' configure error: %v", svc.Name, err)
-		svc.Status = models.StatusExited
-		svc.Pid = 0
-		svc.saveService()
-		return err
-	}
-	if err = svc.proc.AttachProcess(svc.Pid); err != nil {
-		svc.Status = models.StatusExited
-		svc.Pid = 0
-		svc.proc = nil
-		svc.saveService()
-		return err
-	} else {
-		logger.Infof("Service '%s' process %d is still running", svc.Name, svc.Pid)
-	}
-	return nil
-}
-
-func (svc *ServiceInstance) attachTunnel() error {
-	if svc.spec.Accessible != "remote" {
-		return nil
-	}
-	svc.tun = CreateTunnel(svc.Name, []int{svc.Port})
-	if !svc.tun.hasCache() {
-		logger.Infof("Tunnel for service '%s' does not exist", svc.Name)
-		svc.tun = nil
-		return nil
-	}
-	if err := svc.tun.loadCache(); err != nil {
-		logger.Errorf("Load tunnel (%s) failed: %v", svc.Name, err)
-		return err
-	}
-	return nil
 }
 
 /**
@@ -494,20 +305,18 @@ func (svc *ServiceInstance) attachTunnel() error {
 func (svc *ServiceInstance) StartService(ctx context.Context) error {
 	var err error
 
-	svc.Port, err = utils.AllocPort(svc.spec.Port)
+	svc.port, err = utils.AllocPort(svc.spec.Port)
 	if err != nil {
 		return err
 	}
-	if svc.proc, err = svc.CreateProcessInstance(); err != nil {
-		svc.Pid = 0
+	svc.proc = svc.createProcessInstance()
+	if svc.proc.Status == models.StatusError {
 		svc.Status = models.StatusError
 		return err
 	}
 	svc.proc.SetOnRestarted(func(pi *ProcessInstance) {
-		svc.Pid = pi.Pid
 		if pi.Pid == 0 {
 			svc.Status = models.StatusError
-			svc.proc = nil
 		} else {
 			svc.Status = models.StatusRunning
 		}
@@ -515,11 +324,8 @@ func (svc *ServiceInstance) StartService(ctx context.Context) error {
 	})
 	if err := svc.proc.StartProcess(ctx); err != nil {
 		svc.Status = models.StatusError
-		svc.Pid = 0
-		svc.proc = nil
 		return err
 	}
-	svc.Pid = svc.proc.Pid
 	svc.Status = models.StatusRunning
 	svc.StartTime = time.Now().Format(time.RFC3339)
 	svc.OpenTunnel(ctx)
@@ -530,15 +336,10 @@ func (svc *ServiceInstance) StartService(ctx context.Context) error {
 
 func (svc *ServiceInstance) StopService() {
 	svc.Status = models.StatusStopped
-	if svc.proc != nil {
-		svc.proc.StopProcess()
-		svc.proc = nil
-	}
+	svc.proc.StopProcess()
 	if svc.tun != nil {
 		svc.tun.CloseTunnel()
-		svc.tun = nil
 	}
-	svc.Pid = 0
 	svc.saveService()
 }
 
@@ -553,7 +354,7 @@ func (svc *ServiceInstance) RecoverService() {
 		svc.StopService()
 		svc.StartService(context.Background())
 	}
-	if svc.proc == nil || !svc.IsHealthy() {
+	if !svc.IsHealthy() {
 		// 服务进程如果挂了，要把隧道也关了，避免端口变化隧道无法使用
 		if svc.tun != nil {
 			svc.tun.CloseTunnel()
@@ -569,17 +370,15 @@ func (svc *ServiceInstance) CheckService() error {
 	if svc.Status == models.StatusStopped {
 		return nil
 	}
-	if svc.Port > 0 {
-		if !utils.CheckPortConnectable(svc.Port) {
+	if svc.port > 0 {
+		if !utils.CheckPortConnectable(svc.port) {
 			logger.Errorf("Service [%s] is unhealthy", svc.Name)
 			svc.failedCount++
 		} else {
 			svc.failedCount = 0
 		}
 	}
-	if svc.proc != nil {
-		svc.proc.CheckProcess()
-	}
+	svc.proc.CheckProcess()
 	if svc.tun != nil {
 		svc.tun.CheckTunnel()
 	}
@@ -598,37 +397,34 @@ func (svc *ServiceInstance) CheckService() error {
  * - Used for starting new service processes
  * @throws
  * - Command line generation errors
- * @example
- * proc, err := serviceInstance.CreateProcessInstance()
- * if err != nil {
- *     logger.Error("Failed to create process instance:", err)
- *     return nil, err
- * }
  */
-func (svc *ServiceInstance) CreateProcessInstance() (*ProcessInstance, error) {
+func (svc *ServiceInstance) createProcessInstance() *ProcessInstance {
 	name := svc.Name
 	if runtime.GOOS == "windows" {
 		name = fmt.Sprintf("%s.exe", svc.Name)
 	}
 	args := ServiceArgs{
-		LocalPort:   svc.Port,
+		LocalPort:   svc.port,
 		ProcessName: name,
 		ProcessPath: filepath.Join(env.CostrictDir, "bin", name),
 	}
 	command, cmdArgs, err := utils.GetCommandLine(svc.spec.Command, svc.spec.Args, args)
 	if err != nil {
-		return nil, err
+		proc := NewProcessInstance("service "+svc.Name, name, command, cmdArgs)
+		proc.Status = models.StatusError
+		proc.LastExitReason = err.Error()
+		return proc
 	}
-	return NewProcessInstance("service "+svc.Name, name, command, cmdArgs), nil
+	return NewProcessInstance("service "+svc.Name, name, command, cmdArgs)
 }
 
 func (svc *ServiceInstance) OpenTunnel(ctx context.Context) error {
 	if svc.spec.Accessible != "remote" {
 		return nil
 	}
-	svc.tun = CreateTunnel(svc.Name, []int{svc.Port})
+	svc.tun = CreateTunnel(svc.Name, []int{svc.port})
 	if err := svc.tun.OpenTunnel(ctx); err != nil {
-		logger.Errorf("Start tunnel (%s:%d) failed: %v", svc.Name, svc.Port, err)
+		logger.Errorf("Start tunnel (%s:%d) failed: %v", svc.Name, svc.port, err)
 		return err
 	}
 	return nil
@@ -639,7 +435,6 @@ func (svc *ServiceInstance) CloseTunnel() error {
 		return nil
 	}
 	err := svc.tun.CloseTunnel()
-	svc.tun = nil
 	return err
 }
 
@@ -648,6 +443,26 @@ func (svc *ServiceInstance) ReopenTunnel(ctx context.Context) error {
 		svc.CloseTunnel()
 	}
 	return svc.OpenTunnel(ctx)
+}
+
+func (sm *ServiceManager) Init() error {
+	for _, spec := range config.Spec().Services {
+		cpn := sm.cm.GetComponent(spec.Name)
+		if cpn == nil {
+			logger.Errorf("component [%s] isn't exist", spec.Name)
+			return os.ErrNotExist
+		}
+		svc := newService(&spec, cpn, true)
+		sm.services[spec.Name] = svc
+	}
+	sm.self = newService(&config.Spec().Manager.Service, sm.cm.GetSelf(), false)
+	if env.Daemon {
+		sm.self.Status = models.StatusRunning
+		sm.self.port = env.ListenPort
+		sm.self.StartTime = time.Now().Format(time.RFC3339)
+		sm.self.saveService()
+	}
+	return nil
 }
 
 /**
@@ -663,7 +478,7 @@ func (svc *ServiceInstance) ReopenTunnel(ctx context.Context) error {
  * fmt.Printf("Manager PID: %d", selfService.Pid)
  */
 func (sm *ServiceManager) GetSelf() *ServiceInstance {
-	return &sm.self
+	return sm.self
 }
 
 /**
@@ -683,7 +498,7 @@ func (sm *ServiceManager) GetSelf() *ServiceInstance {
 func (sm *ServiceManager) GetInstances(includeSelf bool) []*ServiceInstance {
 	var svcs []*ServiceInstance
 	if includeSelf {
-		svcs = append(svcs, &sm.self)
+		svcs = append(svcs, sm.self)
 	}
 	for _, svc := range sm.services {
 		svcs = append(svcs, svc)
@@ -914,6 +729,9 @@ func (sm *ServiceManager) RecoverServices() {
  * }
  */
 func (sm *ServiceManager) ExportKnowledge(outputPath string) error {
+	if outputPath == "" {
+		outputPath = filepath.Join(env.CostrictDir, "share", ".well-known.json")
+	}
 	if err := sm.exportKnowledge(outputPath); err != nil {
 		logger.Errorf("Failed to export .well-known to file [%s]: %v", outputPath, err)
 		return err
@@ -923,7 +741,7 @@ func (sm *ServiceManager) ExportKnowledge(outputPath string) error {
 
 func (sm *ServiceManager) exportKnowledge(outputPath string) error {
 	serviceKnowledge := []models.ServiceKnowledge{}
-	serviceKnowledge = append(serviceKnowledge, getSelfKnowledge())
+	serviceKnowledge = append(serviceKnowledge, sm.self.getKnowledge())
 	for _, svc := range sm.services {
 		serviceKnowledge = append(serviceKnowledge, svc.getKnowledge())
 	}

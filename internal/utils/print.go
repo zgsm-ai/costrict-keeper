@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"reflect"
 	"strings"
@@ -163,7 +162,6 @@ func FormatDuration(layout string, startTime string, endTime string) (string, er
 	}
 	startTimeParse, err := time.Parse(layout, startTime)
 	if err != nil {
-		log.Printf("startTime invalid: %v\n", err)
 		return "", err
 	}
 	var endTimeParse time.Time
@@ -172,7 +170,6 @@ func FormatDuration(layout string, startTime string, endTime string) (string, er
 	} else {
 		endTimeParse, err = time.Parse(layout, endTime)
 		if err != nil {
-			log.Printf("endTime invalid: %v\n", err)
 			return "", err
 		}
 	}

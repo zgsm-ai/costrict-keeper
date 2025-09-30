@@ -2,9 +2,7 @@ package controllers
 
 import (
 	"costrict-keeper/internal/config"
-	"costrict-keeper/internal/env"
 	"costrict-keeper/services"
-	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,9 +44,22 @@ func NewAPIController(server *services.Server) *APIController {
  */
 func (a *APIController) RegisterRoutes(r *gin.Engine) {
 	r.GET("/healthz", a.Healthz)
+	r.GET("/costrict/api/v1/state", a.GetState)
 	r.POST("/costrict/api/v1/reload", a.ReloadConfig)
 	r.POST("/costrict/api/v1/check", a.Check)
 	r.POST("/costrict/api/v1/known", a.ExportKnowledge)
+}
+
+// @Summary 获取服务器状态
+// @Description 获取服务器状态信息，包括系统规格、认证配置、软件配置和云配置，端口分配信息，等
+// @Tags Config
+// @Accept json
+// @Produce json
+// @Success 200 {object} models.ServerState "服务器状态"
+// @Failure 500 {object} map[string]interface{} "获取服务器状态失败"
+// @Router /costrict/api/v1/state [get]
+func (a *APIController) GetState(c *gin.Context) {
+	c.JSON(200, a.server.GetState())
 }
 
 // @Summary 重新加载配置
@@ -67,19 +78,16 @@ func (a *APIController) ReloadConfig(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"status":  "success",
-		"message": "Configuration reloaded successfully",
-	})
+	c.JSON(200, gin.H{"status": "success"})
 }
 
 // @Summary 执行系统检查
 // @Description 立即执行各项检查，包括服务健康状态、进程状态、隧道状态、组件更新状态和半夜鸡叫自动升级检查机制
-// @Description 返回详细的检查结果，包括各项服务的运行状态、进程信息、隧道连接状态、组件版本信息以及系统总体健康状态
+// @Description 返回详细的检查结果，包括各项服务的运行状态、进程信息、隧道连接状态、组件版本信息以及系统总体健康状态，但不包含配置信息
 // @Tags System
 // @Accept json
 // @Produce json
-// @Success 200 {object} models.CheckResponse "检查成功，返回详细的系统状态信息"
+// @Success 200 {object} models.CheckResponse "检查成功，返回详细的系统状态信息（不包含配置信息）"
 // @Success 200 {object} models.CheckResponse "示例响应：{\n  \"timestamp\": \"2024-01-01T10:00:00Z\",\n  \"services\": [{\n    \"name\": \"costrict\",\n    \"status\": \"running\",\n    \"pid\": 1234,\n    \"port\": 8080,\n    \"startTime\": \"2024-01-01T09:00:00Z\",\n    \"healthy\": true\n  }],\n  \"processes\": [],\n  \"tunnels\": [{\n    \"name\": \"myapp\",\n    \"localPort\": 8080,\n    \"mappingPort\": 30001,\n    \"status\": \"running\",\n    \"pid\": 1235,\n    \"createdTime\": \"2024-01-01T09:00:00Z\"\n  }],\n  \"components\": [{\n    \"name\": \"costrict\",\n    \"localVersion\": \"1.0.0\",\n    \"remoteVersion\": \"1.1.0\",\n    \"installed\": true,\n    \"needUpgrade\": true\n  }],\n  \"midnightRooster\": {\n    \"status\": \"active\",\n    \"nextCheckTime\": \"2024-01-02T03:30:00Z\",\n    \"lastCheckTime\": \"2024-01-01T03:30:00Z\",\n    \"componentsCount\": 5,\n    \"upgradesNeeded\": 2\n  },\n  \"overallStatus\": \"warning\",\n  \"totalChecks\": 4,\n  \"passedChecks\": 3,\n  \"failedChecks\": 1\n}"
 // @Failure 500 {object} map[string]interface{} "内部服务器错误，返回错误代码和详细信息"
 // @Failure 500 {object} map[string]interface{} "示例错误响应：{\n  \"code\": \"system.check_failed\",\n  \"message\": \"Failed to perform system check: timeout error\"\n}"
@@ -111,24 +119,14 @@ func (a *APIController) Healthz(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{} "导出失败"
 // @Router /costrict/api/v1/known [post]
 func (a *APIController) ExportKnowledge(c *gin.Context) {
-	// 获取服务管理器实例
-	manager := services.GetServiceManager()
-
-	// 构建输出文件路径
-	outputFile := filepath.Join(env.CostrictDir, "share", ".well-known.json")
-
 	// 调用ExportKnowledge方法导出知识信息
-	if err := manager.ExportKnowledge(outputFile); err != nil {
+	if err := a.server.Services().ExportKnowledge(""); err != nil {
 		c.JSON(500, gin.H{
-			"code":    "knowledge.export_failed",
-			"message": "Failed to export knowledge: " + err.Error(),
+			"code":  "knowledge.export_failed",
+			"error": "Failed to export knowledge: " + err.Error(),
 		})
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"status":  "success",
-		"message": "Knowledge exported successfully",
-		"path":    outputFile,
-	})
+	c.JSON(200, gin.H{"status": "success"})
 }

@@ -168,7 +168,7 @@ func FetchRemoteConfig() error {
 	cfg.BaseUrl = fmt.Sprintf("%s/costrict", GetBaseURL())
 	cfg.Correct()
 
-	retVer, upgraded, err := utils.UpgradePackage(cfg, nil)
+	pkg, upgraded, err := utils.UpgradePackage(cfg, nil)
 	if err != nil {
 		logger.Errorf("Fetch config failed: %v", err)
 		return err
@@ -176,7 +176,7 @@ func FetchRemoteConfig() error {
 	if !upgraded {
 		logger.Infof("The '%s' version is up to date\n", cfg.PackageName)
 	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(retVer))
+		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(pkg.VersionId))
 	}
 	return nil
 }

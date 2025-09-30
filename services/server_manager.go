@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"math/rand"
 	"os"
 	"time"
@@ -63,13 +64,21 @@ func (s *Server) Services() *ServiceManager {
  * - Returns the component manager associated with this server
  * - Used to access component management operations
  * - Provides access to upgrade, remove, and manage components
- * @example
- * server := NewServer(cfg)
- * componentManager := server.Components()
- * components := componentManager.GetComponents()
  */
 func (s *Server) Components() *ComponentManager {
 	return s.component
+}
+
+func (s *Server) Init() error {
+	s.cleanRemains()
+	if err := s.component.Init(); err != nil {
+		return err
+	}
+	s.component.UpgradeAll()
+	if err := s.service.Init(); err != nil {
+		return err
+	}
+	return nil
 }
 
 /**
@@ -84,16 +93,14 @@ func (s *Server) Components() *ComponentManager {
  * server.StartAllService()
  */
 func (s *Server) StartAllService() {
-	s.service.StopAll()
-	s.cleanRemains()
-	s.component.UpgradeAll()
+	// s.service.StopAll()
 	s.service.StartAll(context.Background())
 }
 
 func (s *Server) cleanRemains() {
-	utils.KillSpecifiedProcess(COSTRICT_NAME)
-	for _, svc := range config.Spec().Components {
-		utils.KillSpecifiedProcess(svc.Name)
+	utils.KillSpecifiedProcess(config.Spec().Manager.Component.Name)
+	for _, cpn := range config.Spec().Components {
+		utils.KillSpecifiedProcess(cpn.Name)
 	}
 }
 
@@ -335,80 +342,47 @@ func (s *Server) Check() models.CheckResponse {
 
 	// 检查服务
 	s.service.CheckServices()
-	var serviceResults []models.ServiceCheckResult
+	var serviceResults []models.ServiceDetail
 	for _, svc := range s.service.GetInstances(false) {
-		tunResult := models.TunnelCheckResult{}
-		if svc.tun != nil {
-			tunResult.Enabled = true
-			tunResult.Pid = svc.tun.Pid
-			tunResult.CreatedTime = svc.tun.CreatedTime.Format(time.RFC3339)
-			tunResult.Status = string(svc.tun.Status)
-			tunResult.Ports = svc.tun.Pairs
-			tunResult.Healthy = svc.tun.IsHealthy()
-		} else {
-			if svc.spec.Accessible == "remote" {
-				tunResult.Enabled = true
-				tunResult.Healthy = false
-			} else {
-				tunResult.Enabled = false
-				tunResult.Healthy = true
-			}
-			tunResult.Pid = 0
-			tunResult.CreatedTime = ""
-			tunResult.Status = "exited"
-		}
-		serviceResults = append(serviceResults, models.ServiceCheckResult{
-			Name:           svc.Name,
-			Status:         string(svc.Status),
-			Pid:            svc.Pid,
-			Port:           svc.Port,
-			StartTime:      svc.StartTime,
-			Healthy:        svc.IsHealthy(),
-			RestartCount:   svc.proc.RestartCount,
-			LastExitTime:   svc.proc.LastExitTime.Format(time.RFC3339),
-			LastExitReason: svc.proc.LastExitReason,
-			ProcessName:    svc.proc.ProcessName,
-			Tunnel:         tunResult,
-		})
+		serviceResult := svc.GetDetail()
+		serviceResults = append(serviceResults, serviceResult)
 	}
 	response.Services = serviceResults
 
 	// 检查组件
 	s.component.CheckComponents()
-	var components []models.ComponentCheckResult
-	for _, cpn := range s.component.GetComponents(true) {
-		components = append(components, models.ComponentCheckResult{
-			Name:          cpn.Spec.Name,
-			LocalVersion:  cpn.LocalVersion,
-			RemoteVersion: cpn.RemoteVersion,
-			Installed:     cpn.Installed,
-			NeedUpgrade:   cpn.NeedUpgrade,
-		})
+	var components []models.ComponentDetail
+	for _, cpn := range s.component.GetComponents(true, true) {
+		components = append(components, cpn.GetDetail())
 	}
 	response.Components = components
 
-	response.MidnightRooster = models.MidnightRoosterCheckResult{
-		Status:        "active",
-		NextCheckTime: s.nextMidnightCheck,
-		LastCheckTime: time.Now(), // 简化处理
-	}
-
 	// 计算总体状态
-	response.TotalChecks = len(serviceResults) + len(components)
+	response.TotalChecks = 0
 	response.PassedChecks = 0
 	response.FailedChecks = 0
 
 	// 统计服务检查结果
 	for _, svc := range serviceResults {
+		response.TotalChecks++
 		if svc.Healthy && svc.Status == "running" {
 			response.PassedChecks++
 		} else {
 			response.FailedChecks++
 		}
+		if svc.Tunnel != nil {
+			response.TotalChecks++
+			if svc.Tunnel.Healthy {
+				response.PassedChecks++
+			} else {
+				response.FailedChecks++
+			}
+		}
 	}
 
 	// 统计组件检查结果
 	for _, cpn := range components {
+		response.TotalChecks++
 		if cpn.Installed && !cpn.NeedUpgrade {
 			response.PassedChecks++
 		} else {
@@ -426,6 +400,46 @@ func (s *Server) Check() models.CheckResponse {
 	}
 
 	return response
+}
+
+func configToString(v interface{}) string {
+	jsonData, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(jsonData)
+}
+
+func (s *Server) GetState() models.ServerState {
+	state := models.ServerState{
+		StartTime: s.startTime,
+	}
+
+	// 半夜鸡叫设置
+	state.MidnightRooster = models.MidnightRoosterState{
+		Status:        "active",
+		NextCheckTime: s.nextMidnightCheck,
+		LastCheckTime: time.Now(), // 简化处理
+	}
+	// 端口分配记录
+	min, max, allocs := utils.GetPortAllocates()
+	state.PortAlloc.Max = max
+	state.PortAlloc.Min = min
+	state.PortAlloc.Allocates = allocs
+
+	//	环境设置
+	state.Env.CostrictDir = env.CostrictDir
+	state.Env.Daemon = env.Daemon
+	state.Env.ListenPort = env.ListenPort
+	state.Env.Version = env.Version
+
+	state.Config = models.ServerConfig{
+		SystemSpec: configToString(config.Spec()),
+		Auth:       configToString(config.GetAuthConfig()),
+		Software:   configToString(config.App()),
+		Cloud:      configToString(config.Cloud()),
+	}
+	return state
 }
 
 /**
@@ -475,18 +489,18 @@ func (s *Server) GetHealthz() models.HealthResponse {
 		if svc.Status == models.StatusRunning {
 			activeServices++
 			tun := svc.GetTunnel()
-			if tun != nil && tun.Status == models.StatusRunning {
-				activeTunnels += len(tun.Pairs)
+			if tun != nil && tun.status == models.StatusRunning {
+				activeTunnels += len(tun.pairs)
 			}
 		}
 	}
 
 	// 获取组件统计信息
-	components := s.component.GetComponents(true)
+	components := s.component.GetComponents(true, true)
 	totalComponents := len(components)
 	upgradedComponents := 0
 	for _, cpn := range components {
-		if cpn.Installed {
+		if cpn.installed {
 			upgradedComponents++
 		}
 	}

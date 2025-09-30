@@ -7,6 +7,7 @@ import (
 	"costrict-keeper/internal/utils"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -38,7 +39,7 @@ func FetchRemoteSystemSpecification() error {
 	cfg.BaseUrl = fmt.Sprintf("%s/costrict", GetBaseURL())
 	cfg.Correct()
 
-	retVer, upgraded, err := utils.UpgradePackage(cfg, nil)
+	pkg, upgraded, err := utils.UpgradePackage(cfg, nil)
 	if err != nil {
 		logger.Errorf("fetch config failed: %v", err)
 		return err
@@ -46,7 +47,7 @@ func FetchRemoteSystemSpecification() error {
 	if !upgraded {
 		logger.Infof("The '%s' version is up to date\n", cfg.PackageName)
 	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(retVer))
+		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(pkg.VersionId))
 	}
 	return nil
 }
@@ -67,6 +68,19 @@ func LoadLocalSystemSpecification() (*models.SystemSpecification, error) {
 
 var system *models.SystemSpecification
 
+func LoadLocalSpec() error {
+	if system != nil {
+		return nil
+	}
+	var err error
+	system, err = LoadLocalSystemSpecification()
+	if err != nil {
+		logger.Errorf("Load failed: %v", err)
+		return err
+	}
+	return nil
+}
+
 func LoadSpec() error {
 	if system != nil {
 		return nil
@@ -85,10 +99,8 @@ func LoadSpec() error {
 }
 
 func Spec() *models.SystemSpecification {
-	if system != nil {
-		return system
-	}
-	if err := LoadSpec(); err != nil {
+	if system == nil {
+		log.Fatalln("Must run config.LoadSpec/config.LoadLocalSpec first")
 		return nil
 	}
 	return system

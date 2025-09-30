@@ -98,7 +98,6 @@ func GetAuthConfig() AuthConfig {
 
 	// Try to load config if not loaded yet
 	if err := LoadAuthConfig(); err != nil {
-		// Return empty config on error
 		return AuthConfig{}
 	}
 

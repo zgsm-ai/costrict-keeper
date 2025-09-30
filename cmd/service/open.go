@@ -1,9 +1,10 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
-	"log"
 
+	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/rpc"
 
 	"github.com/spf13/cobra"
@@ -16,22 +17,21 @@ var openCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		serviceName := args[0]
 		if serviceName == "" {
-			log.Fatal("Must specify service name")
+			fmt.Println("Must specify service name")
+			return
 		}
 
-		openTunnelViaRPC(serviceName)
+		openTunnel(serviceName)
 	},
 }
 
 /**
- * Try to open tunnel via RPC connection to costrict server
- * @param {rpc.HTTPClient} rpcClient - RPC client instance
- * @param {string} serviceName - Application name
- * @param {int} port - Port number for tunnel
+ * Open tunnel via RPC connection to costrict server
+ * @param {string} appName - Application name
  * @returns {bool} True if RPC call succeeded, false otherwise
  * @description
  * - Attempts to connect to costrict server via Unix socket
- * - Calls /costrict/api/v1/tunnels endpoint to create tunnel
+ * - Calls /costrict/api/v1/services/{appName}/open endpoint to open tunnel
  * - Handles connection errors and API response errors
  * - Returns success/failure status for fallback logic
  * @throws
@@ -39,42 +39,38 @@ var openCmd = &cobra.Command{
  * - API request errors
  * - Response parsing errors
  */
-func openTunnelViaRPC(serviceName string) bool {
+func openTunnel(appName string) {
 	rpcClient := rpc.NewHTTPClient(nil)
-	// 尝试调用 costrict 的 RESTful API
-	resp, err := rpcClient.Post(fmt.Sprintf("/costrict/api/v1/services/%s/open", serviceName), nil)
+	resp, err := rpcClient.Post(fmt.Sprintf("/costrict/api/v1/services/%s/open", appName), nil)
 	if err != nil {
-		log.Printf("Failed to call costrict API: %v", err)
-		return false
+		fmt.Printf("Failed to call costrict API: %v\n", err)
+		return
 	}
-
-	// 检查响应状态码
-	// 检查HTTP状态码是否在200-299范围内
-	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
-		if resp.Body != nil {
-			if message, msgExists := resp.Body["message"]; msgExists {
-				if messageStr, ok := message.(string); ok {
-					fmt.Printf("Successfully started tunnel via costrict server: %s\n", messageStr)
-					return true
-				}
-			}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.Error != "" {
+			fmt.Printf("Costrict API returned error: %s\n", resp.Error)
+			return
 		}
-		// 即使没有message字段，只要状态码在200-299范围内，也认为成功
-		fmt.Printf("Successfully started tunnel via costrict server, status code: %d\n", resp.StatusCode)
-		return true
+		fmt.Printf("Unexpected response from costrict API\n")
+		return
 	}
 
-	// 如果响应中包含错误信息
-	if resp.Body != nil {
-		if errorMsg, exists := resp.Body["error"]; exists {
-			if errorStr, ok := errorMsg.(string); ok {
-				log.Printf("Costrict API returned error: %s", errorStr)
-			}
-		}
+	var tun models.TunnelDetail
+	if err := json.Unmarshal([]byte(resp.Text), &tun); err != nil {
+		fmt.Printf("Failed to unmarshal tunnel instance: %v\n", err)
+		return
 	}
 
-	log.Printf("Unexpected response from costrict API")
-	return false
+	// 成功反序列化，输出隧道信息
+	fmt.Printf("Successfully opened tunnel for %s\n", appName)
+	fmt.Printf("  Name: %s\n", tun.Name)
+	fmt.Printf("  Status: %s\n", tun.Status)
+	fmt.Printf("  PID: %d\n", tun.Pid)
+	fmt.Printf("  Created Time: %s\n", tun.CreatedTime.Format("2006-01-02 15:04:05"))
+	if len(tun.Pairs) > 0 {
+		fmt.Printf("  Local Port: %d -> Mapping Port: %d\n",
+			tun.Pairs[0].LocalPort, tun.Pairs[0].MappingPort)
+	}
 }
 
 func init() {

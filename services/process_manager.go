@@ -30,18 +30,18 @@ import (
  * @property {int} maxRestartCount - 最大重启次数
  */
 type ProcessInstance struct {
-	Title           string                 `json:"title"`           //显示用的名字
-	ProcessName     string                 `json:"processName"`     //进程名，用于查找进程
-	Command         string                 `json:"command"`         //进程启动命令
-	Args            []string               `json:"args"`            //进程参数
-	WorkDir         string                 `json:"workDir"`         //工作目录
-	MaxRestartCount int                    `json:"maxRestartCount"` //最大重启次数
-	Pid             int                    `json:"pid"`             //进程PID
-	Status          models.RunStatus       `json:"status"`          //状态
-	RestartCount    int                    `json:"restartCount"`    //重启次数
-	StartTime       time.Time              `json:"startTime"`       //启动时间
-	LastExitTime    time.Time              `json:"lastExitTime"`    //最后一次退出的时间
-	LastExitReason  string                 `json:"lastExitReason"`  //最后一次退出的原因
+	Title           string                 //显示用的名字
+	ProcessName     string                 //进程名，用于查找进程
+	Command         string                 //进程启动命令
+	Args            []string               //进程参数
+	WorkDir         string                 //工作目录
+	MaxRestartCount int                    //最大重启次数
+	Pid             int                    //进程PID
+	Status          models.RunStatus       //状态
+	RestartCount    int                    //重启次数
+	StartTime       time.Time              //启动时间
+	LastExitTime    time.Time              //最后一次退出的时间
+	LastExitReason  string                 //最后一次退出的原因
 	onExited        func(*ProcessInstance) //监测到进程退出时的回调函数
 	onRestarted     func(*ProcessInstance) //监测到进程已经重启的回调函数
 	process         *os.Process            //统一的进程对象，用于Wait()
@@ -78,6 +78,23 @@ func (proc *ProcessInstance) SetOnExited(callback func(*ProcessInstance)) {
 
 func (proc *ProcessInstance) SetOnRestarted(callback func(*ProcessInstance)) {
 	proc.onRestarted = callback
+}
+
+func (proc *ProcessInstance) GetDetail() models.ProcessDetail {
+	return models.ProcessDetail{
+		Title:           proc.Title,
+		ProcessName:     proc.ProcessName,
+		Command:         proc.Command,
+		Args:            proc.Args,
+		WorkDir:         proc.WorkDir,
+		MaxRestartCount: proc.MaxRestartCount,
+		Status:          proc.Status,
+		Pid:             proc.Pid,
+		RestartCount:    proc.RestartCount,
+		StartTime:       proc.StartTime,
+		LastExitTime:    proc.LastExitTime,
+		LastExitReason:  proc.LastExitReason,
+	}
 }
 
 /**
@@ -215,7 +232,7 @@ func (proc *ProcessInstance) StopProcess() error {
 }
 
 func (proc *ProcessInstance) CheckProcess() {
-	if proc.Status == models.StatusStopped {
+	if proc.Status != models.StatusRunning {
 		return
 	}
 	if proc.process != nil {

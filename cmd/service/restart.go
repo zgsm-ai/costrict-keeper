@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/rpc"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -13,9 +16,7 @@ var restartCmd = &cobra.Command{
 	Short: "Restart service",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := restartServiceViaRPC(context.Background(), args[0]); err != nil {
-			fmt.Println(err)
-		}
+		restartService(context.Background(), args[0])
 	},
 }
 
@@ -34,28 +35,75 @@ var restartCmd = &cobra.Command{
  * - Connection establishment errors
  * - API call errors
  * @example
- * err := restartServiceViaRPC(context.Background(), "codebase-syncer")
+ * err := restartService(context.Background(), "codebase-syncer")
  * if err != nil {
- *     log.Printf("RPC restart failed: %v", err)
+ *     fmt.Printf("RPC restart failed: %v", err)
  * }
  */
-func restartServiceViaRPC(ctx context.Context, serviceName string) error {
-	client := rpc.NewHTTPClient(nil)
-	defer client.Close()
-
-	// 调用重启服务的 API
-	apiPath := fmt.Sprintf("/costrict/api/v1/services/%s/restart", serviceName)
-	resp, err := client.Post(apiPath, nil)
+/**
+ * Restart service via RPC client to costrict server
+ * @param {context.Context} ctx - Context for request cancellation and timeout
+ * @param {string} serviceName - Name of the service to restart
+ * @returns {error} Returns error if RPC restart fails, nil on success
+ * @description
+ * - Creates RPC client with default configuration
+ * - Attempts to connect to costrict server via HTTP
+ * - Calls restart API endpoint if connection succeeds
+ * - Parses and displays detailed service information after restart
+ * - Returns error if connection or API call fails
+ * @throws
+ * - RPC client creation errors
+ * - Connection establishment errors
+ * - API call errors
+ * - JSON parsing errors
+ * @example
+ * err := restartService(context.Background(), "codebase-syncer")
+ * if err != nil {
+ *     fmt.Printf("RPC restart failed: %v", err)
+ * }
+ */
+func restartService(ctx context.Context, serviceName string) {
+	rpcClient := rpc.NewHTTPClient(nil)
+	resp, err := rpcClient.Post(fmt.Sprintf("/costrict/api/v1/services/%s/restart", serviceName), nil)
 	if err != nil {
-		return fmt.Errorf("failed to call restart API: %w", err)
+		fmt.Printf("failed to call costrict API: %w\n", err)
+		return
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.Error != "" {
+			fmt.Printf("costrict API returned error: %s\n", resp.Error)
+			return
+		}
+		fmt.Printf("unexpected response from costrict API\n")
+		return
 	}
 
-	// 检查响应状态
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("restart API returned status code %d", resp.StatusCode)
+	var serviceDetail models.ServiceDetail
+	if err := json.Unmarshal([]byte(resp.Text), &serviceDetail); err != nil {
+		fmt.Printf("failed to unmarshal service detail: %w\n", err)
+		return
 	}
-	fmt.Printf("Service %s has been restarted via RPC\n", serviceName)
-	return nil
+
+	// 成功重启服务，显示服务详细信息
+	fmt.Printf("Successfully restarted service '%s'\n", serviceName)
+	fmt.Printf("  Name: %s\n", serviceDetail.Name)
+	fmt.Printf("  Status: %s\n", serviceDetail.Status)
+	fmt.Printf("  PID: %d\n", serviceDetail.Pid)
+	if serviceDetail.Port > 0 {
+		fmt.Printf("  Port: %d\n", serviceDetail.Port)
+	}
+	if serviceDetail.StartTime != "" {
+		startTime, err := time.Parse(time.RFC3339, serviceDetail.StartTime)
+		if err == nil {
+			fmt.Printf("  Start Time: %s\n", startTime.Format("2006-01-02 15:04:05"))
+		}
+	}
+	if serviceDetail.Tunnel.Status != models.StatusDisabled {
+		fmt.Printf("  Tunnel: %s\n", serviceDetail.Tunnel.Status)
+		for _, pair := range serviceDetail.Tunnel.Pairs {
+			fmt.Printf("    Local Port: %d -> Mapping Port: %d\n", pair.LocalPort, pair.MappingPort)
+		}
+	}
 }
 
 func init() {

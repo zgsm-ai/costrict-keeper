@@ -13,10 +13,10 @@ type HealthResponse struct {
 // Metrics 关键指标结构
 // @Description 系统关键指标数据结构
 type Metrics struct {
-	TotalRequests      int64 `json:"totalRequests" example:"1000" description:"总请求数"`
-	ErrorRequests      int64 `json:"errorRequests" example:"5" description:"出错请求数"`
-	ActiveServices     int   `json:"activeServices" example:"3" description:"活跃服务数"`
-	ActiveTunnels      int   `json:"activeTunnels" example:"2" description:"活跃隧道数"`
-	TotalComponents    int   `json:"totalComponents" example="5" description:"组件总数"`
-	UpgradedComponents int   `json:"upgradedComponents" example:"4" description:"已升级组件数"`
+	TotalRequests      int64 `json:"totalRequests"`
+	ErrorRequests      int64 `json:"errorRequests"`
+	ActiveServices     int   `json:"activeServices"`
+	ActiveTunnels      int   `json:"activeTunnels"`
+	TotalComponents    int   `json:"totalComponents"`
+	UpgradedComponents int   `json:"upgradedComponents"`
 }

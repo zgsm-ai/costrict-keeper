@@ -49,13 +49,20 @@ type TunnelArgs struct {
 	ProcessPath string
 }
 
-type TunnelInstance struct {
+type TunnelCache struct {
 	Name        string            `json:"name"`        // service name
 	Pairs       []models.PortPair `json:"pairs"`       // Port pairs
 	Status      models.RunStatus  `json:"status"`      // tunnel status(running/stopped/error/exited)
 	CreatedTime time.Time         `json:"createdTime"` // creation time
 	Pid         int               `json:"pid"`         // process ID of the tunnel
-	proc        *ProcessInstance
+}
+
+type TunnelInstance struct {
+	name        string            // service name
+	pairs       []models.PortPair // Port pairs
+	status      models.RunStatus  // tunnel status(running/stopped/error/exited)
+	createdTime time.Time         // creation time
+	proc        *ProcessInstance  // Process cotun.exe
 }
 
 /**
@@ -77,11 +84,10 @@ func CreateTunnel(appName string, ports []int) *TunnelInstance {
 		pairs = append(pairs, models.PortPair{LocalPort: p, MappingPort: 0})
 	}
 	tun := &TunnelInstance{
-		Name:        appName,
-		Pairs:       pairs,
-		Status:      "exited",
-		Pid:         0,
-		CreatedTime: time.Now().Local(),
+		name:        appName,
+		pairs:       pairs,
+		status:      "exited",
+		createdTime: time.Now().Local(),
 	}
 	return tun
 }
@@ -99,11 +105,21 @@ func CreateTunnel(appName string, ports []int) *TunnelInstance {
  * // Returns: "myapp:8080->9000"
  */
 func (ti *TunnelInstance) getTitle() string {
-	return fmt.Sprintf("%s:%d->%d", ti.Name, ti.Pairs[0].LocalPort, ti.Pairs[0].MappingPort)
+	return fmt.Sprintf("%s:%d->%d", ti.name, ti.pairs[0].LocalPort, ti.pairs[0].MappingPort)
 }
 
 func (ti *TunnelInstance) toJSON() (string, error) {
-	data, err := json.MarshalIndent(ti, "", "  ")
+	cache := TunnelCache{
+		Name:        ti.name,
+		Pid:         0,
+		Status:      ti.status,
+		CreatedTime: ti.createdTime,
+		Pairs:       ti.pairs,
+	}
+	if ti.proc != nil {
+		cache.Pid = ti.proc.Pid
+	}
+	data, err := json.MarshalIndent(&cache, "", "  ")
 	if err != nil {
 		return "", err
 	}
@@ -123,7 +139,7 @@ func (ti *TunnelInstance) toJSON() (string, error) {
  * // Returns: /path/to/costrict/cache/tunnels/myapp-8080.json
  */
 func (tun *TunnelInstance) getCacheFname() string {
-	return filepath.Join(env.CostrictDir, "cache", "tunnels", fmt.Sprintf("%s.json", tun.Name))
+	return filepath.Join(env.CostrictDir, "cache", "tunnels", fmt.Sprintf("%s.json", tun.name))
 }
 
 /**
@@ -146,13 +162,13 @@ func (tun *TunnelInstance) getCacheFname() string {
  * - JSON parsing errors for response
  */
 func (tun *TunnelInstance) allocMappingPort() error {
-	tun.Pairs[0].MappingPort = 0
+	tun.pairs[0].MappingPort = 0
 
 	// 创建请求 body
 	requestBody := PortAllocationRequest{
 		ClientId:   config.GetMachineID(),
-		AppName:    tun.Name,
-		ClientPort: tun.Pairs[0].LocalPort,
+		AppName:    tun.name,
+		ClientPort: tun.pairs[0].LocalPort,
 	}
 
 	jsonBody, err := json.Marshal(requestBody)
@@ -197,9 +213,25 @@ func (tun *TunnelInstance) allocMappingPort() error {
 		logger.Errorf("Failed to parse response: %v", err)
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
-	tun.Pairs[0].MappingPort = result.MappingPort
+	tun.pairs[0].MappingPort = result.MappingPort
 	logger.Infof("Successfully applied for port mapping, result: %+v", result)
 	return nil
+}
+
+func (tun *TunnelInstance) GetDetail() models.TunnelDetail {
+	detail := models.TunnelDetail{
+		Name:        tun.name,
+		Status:      tun.status,
+		CreatedTime: tun.createdTime,
+		Pairs:       tun.pairs,
+		Pid:         0,
+		Healthy:     false,
+	}
+	if tun.proc != nil {
+		detail.Pid = tun.proc.Pid
+		detail.Healthy = tun.IsHealthy()
+	}
+	return detail
 }
 
 /**
@@ -221,8 +253,8 @@ func (tun *TunnelInstance) allocMappingPort() error {
  * - Process start errors
  */
 func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
-	if tun.Status == models.StatusRunning {
-		logger.Infof("Tunnel (%s) has been started, PID: %d", tun.getTitle(), tun.Pid)
+	if tun.status == models.StatusRunning {
+		logger.Infof("Tunnel (%s) has been started, PID: %d", tun.getTitle(), tun.proc.Pid)
 		return nil
 	}
 	var err error
@@ -230,7 +262,7 @@ func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
 	defer func() {
 		tun.saveTunnel()
 	}()
-	tun.Status = models.StatusError
+	tun.status = models.StatusError
 
 	if err := tun.allocMappingPort(); err != nil {
 		logger.Errorf("Allocate mapping port failed: %v", err)
@@ -243,24 +275,21 @@ func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
 		return err
 	}
 	tun.proc.SetOnRestarted(func(pi *ProcessInstance) {
-		tun.Pid = pi.Pid
 		if pi.Pid == 0 {
-			tun.Status = models.StatusError
-			tun.proc = nil
+			tun.status = models.StatusError
 		} else {
-			tun.Status = models.StatusRunning
+			tun.status = models.StatusRunning
 		}
 		tun.saveTunnel()
 	})
 	if err := tun.proc.StartProcess(ctx); err != nil {
 		return err
 	}
-	tun.Status = models.StatusRunning
-	tun.Pid = tun.proc.Pid
-	tun.CreatedTime = tun.proc.StartTime
+	tun.status = models.StatusRunning
+	tun.createdTime = tun.proc.StartTime
 
 	logger.Infof("Successfully created tunnel (%s), process: %s (PID: %d)",
-		tun.getTitle(), tun.proc.ProcessName, tun.Pid)
+		tun.getTitle(), tun.proc.ProcessName, tun.proc.Pid)
 	return nil
 }
 
@@ -281,13 +310,11 @@ func (tun *TunnelInstance) CloseTunnel() error {
 	if tun.proc == nil {
 		return nil
 	}
-	logger.Infof("Tunnel '%s' (PID: %d) will be closed", tun.getTitle(), tun.Pid)
-	tun.Status = models.StatusStopped
+	logger.Infof("Tunnel '%s' (PID: %d) will be closed", tun.getTitle(), tun.proc.Pid)
+	tun.status = models.StatusStopped
 	tun.proc.StopProcess()
-	utils.FreePort(tun.Pairs[0].LocalPort)
+	utils.FreePort(tun.pairs[0].LocalPort)
 	tun.cleanTunnel()
-	tun.Pid = 0
-	tun.proc = nil
 	return nil
 }
 
@@ -305,14 +332,14 @@ func (tun *TunnelInstance) CloseTunnel() error {
  * - Tunnel start errors
  */
 func (tun *TunnelInstance) ReopenTunnel(ctx context.Context) error {
-	if tun.Status == models.StatusRunning {
+	if tun.status == models.StatusRunning {
 		tun.CloseTunnel()
 	}
 	return tun.OpenTunnel(ctx)
 }
 
 func (tun *TunnelInstance) CheckTunnel() {
-	if tun.Status == models.StatusStopped {
+	if tun.status != models.StatusRunning {
 		return
 	}
 	if tun.proc == nil {
@@ -320,21 +347,22 @@ func (tun *TunnelInstance) CheckTunnel() {
 	}
 	tun.proc.CheckProcess()
 	if tun.proc.Pid == 0 {
-		tun.proc = nil
-		tun.Pid = 0
-		tun.Status = models.StatusExited
+		tun.status = models.StatusExited
 		tun.cleanTunnel()
 	}
 }
 
 func (tun *TunnelInstance) IsHealthy() bool {
-	if tun.Status != models.StatusRunning {
+	if tun.status != models.StatusRunning {
 		return false
 	}
 	if tun.proc == nil {
 		return false
 	}
-	running, err := utils.IsProcessRunning(tun.Pid)
+	if tun.proc.Pid == 0 {
+		return false
+	}
+	running, err := utils.IsProcessRunning(tun.proc.Pid)
 	if err != nil || !running {
 		return false
 	}
@@ -363,9 +391,9 @@ func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
 		name = fmt.Sprintf("%s.exe", cfg.Tunnel.ProcessName)
 	}
 	args := TunnelArgs{
-		AppName:     tun.Name,
-		LocalPort:   tun.Pairs[0].LocalPort,
-		MappingPort: tun.Pairs[0].MappingPort,
+		AppName:     tun.name,
+		LocalPort:   tun.pairs[0].LocalPort,
+		MappingPort: tun.pairs[0].MappingPort,
 		RemoteAddr:  config.Cloud().TunnelUrl,
 		ProcessName: name,
 		ProcessPath: filepath.Join(env.CostrictDir, "bin", name),
@@ -375,7 +403,7 @@ func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
 		logger.Errorf("Tunnel startup settings are incorrect, setting: %+v", cfg.Tunnel)
 		return nil, err
 	}
-	return NewProcessInstance("tunnel "+tun.Name, name, command, cmdArgs), nil
+	return NewProcessInstance("tunnel "+tun.name, name, command, cmdArgs), nil
 }
 
 /**
@@ -439,57 +467,5 @@ func (tun *TunnelInstance) cleanTunnel() error {
 			return err
 		}
 	}
-	return nil
-}
-
-func (tun *TunnelInstance) hasCache() bool {
-	fname := tun.getCacheFname()
-	if _, err := os.Stat(fname); err == nil {
-		return true
-	}
-	return false
-}
-
-/**
- * Load tunnel instance from cache into memory
- * @param {TunnelInstance} tun - Tunnel instance loaded from cache
- * @description
- * - Searches for existing tunnel with same name and port
- * - Updates existing tunnel if found, appends new one if not found
- * - If tunnel has PID > 0, creates and attaches process instance
- * - Logs successful loading with tunnel details
- * - Silently returns on errors during process attachment
- * @example
- * // Called from loadCache when reading tunnel data from disk
- * tm.loadCache()
- */
-func (tun *TunnelInstance) loadCache() error {
-	data, err := os.ReadFile(tun.getCacheFname())
-	if err != nil {
-		return err
-	}
-	var cached TunnelInstance
-	if err := json.Unmarshal(data, &cached); err != nil {
-		return err
-	}
-	*tun = cached
-	if cached.Pid > 0 {
-		tun.proc, err = tun.createProcessInstance()
-		if err != nil {
-			tun.proc = nil
-			tun.Pid = 0
-			tun.Status = models.StatusExited
-			tun.cleanTunnel()
-			return err
-		}
-		if err = tun.proc.AttachProcess(tun.Pid); err != nil {
-			tun.proc = nil
-			tun.Pid = 0
-			tun.Status = models.StatusExited
-			tun.cleanTunnel()
-			return err
-		}
-	}
-	logger.Infof("Successfully loaded tunnel (%s,PID:%d) from cache", tun.getTitle(), tun.Pid)
 	return nil
 }
