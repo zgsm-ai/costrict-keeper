@@ -45,10 +45,9 @@ type PackageList struct {
 	Packages []string `json:"packages"`
 }
 
-func GetRemotePlatforms(cfg UpgradeConfig) (PackageOverview, error) {
+func (u *Upgrader) GetRemotePlatforms() (PackageOverview, error) {
 	//	<base-url>/<package>/platforms.json
-	urlStr := fmt.Sprintf("%s/%s/platforms.json",
-		cfg.BaseUrl, cfg.PackageName)
+	urlStr := fmt.Sprintf("%s/%s/platforms.json", u.BaseUrl, u.packageName)
 
 	bytes, err := GetBytes(urlStr, nil)
 	if err != nil {
@@ -61,9 +60,9 @@ func GetRemotePlatforms(cfg UpgradeConfig) (PackageOverview, error) {
 	return *plats, nil
 }
 
-func GetRemotePackages(cfg UpgradeConfig) (PackageList, error) {
+func (u *Upgrader) GetRemotePackages() (PackageList, error) {
 	//	<base-url>/packages.json
-	urlStr := fmt.Sprintf("%s/packages.json", cfg.BaseUrl)
+	urlStr := fmt.Sprintf("%s/packages.json", u.BaseUrl)
 
 	bytes, err := GetBytes(urlStr, nil)
 	if err != nil {

@@ -69,17 +69,13 @@ func restartService(ctx context.Context, serviceName string) {
 		fmt.Printf("failed to call costrict API: %w\n", err)
 		return
 	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		if resp.Error != "" {
-			fmt.Printf("costrict API returned error: %s\n", resp.Error)
-			return
-		}
-		fmt.Printf("unexpected response from costrict API\n")
+	if resp.Error != "" {
+		fmt.Printf("Costrict API returned error(%d): %s\n", resp.StatusCode, resp.Error)
 		return
 	}
 
 	var serviceDetail models.ServiceDetail
-	if err := json.Unmarshal([]byte(resp.Text), &serviceDetail); err != nil {
+	if err := json.Unmarshal(resp.Body, &serviceDetail); err != nil {
 		fmt.Printf("failed to unmarshal service detail: %w\n", err)
 		return
 	}

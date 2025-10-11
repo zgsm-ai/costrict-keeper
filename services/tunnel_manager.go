@@ -180,12 +180,10 @@ func (tun *TunnelInstance) allocMappingPort() error {
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-
-	// 获取认证请求头，包含Authorization字段
-	authHeaders := config.GetAuthHeaders()
-	for key, value := range authHeaders {
-		req.Header.Set(key, value)
-	}
+	authKey, authValue := config.GetAuthHeader()
+	req.Header.Set(authKey, authValue)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -274,14 +272,16 @@ func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
 		logger.Errorf("Failed to get command info: %v", err)
 		return err
 	}
-	tun.proc.SetOnRestarted(func(pi *ProcessInstance) {
-		if pi.Pid == 0 {
-			tun.status = models.StatusError
-		} else {
-			tun.status = models.StatusRunning
-		}
-		tun.saveTunnel()
-	})
+	if env.Daemon {
+		tun.proc.EnableWatcher(7, nil, func(pi *ProcessInstance) {
+			if pi.Pid == 0 {
+				tun.status = models.StatusError
+			} else {
+				tun.status = models.StatusRunning
+			}
+			tun.saveTunnel()
+		})
+	}
 	if err := tun.proc.StartProcess(ctx); err != nil {
 		return err
 	}

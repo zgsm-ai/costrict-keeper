@@ -26,9 +26,8 @@ type AuthConfig struct {
 }
 
 var (
-	clientConfig AuthConfig
-	clientLock   sync.RWMutex
-	clientLoaded bool
+	authConfig *AuthConfig
+	authLock   sync.RWMutex
 )
 
 /**
@@ -50,7 +49,6 @@ var (
 func LoadAuthConfig() error {
 	authPath := filepath.Join(env.CostrictDir, "share", "auth.json")
 
-	// Check if file exists
 	if _, err := os.Stat(authPath); os.IsNotExist(err) {
 		return fmt.Errorf("auth config file not found: %s", authPath)
 	}
@@ -66,12 +64,10 @@ func LoadAuthConfig() error {
 		return fmt.Errorf("failed to decode auth config: %w", err)
 	}
 
-	clientLock.Lock()
-	defer clientLock.Unlock()
+	authLock.Lock()
+	defer authLock.Unlock()
 
-	clientConfig = newConfig
-	clientLoaded = true
-
+	authConfig = &newConfig
 	return nil
 }
 
@@ -89,21 +85,21 @@ func LoadAuthConfig() error {
  * }
  */
 func GetAuthConfig() AuthConfig {
-	clientLock.RLock()
-	if clientLoaded {
-		defer clientLock.RUnlock()
-		return clientConfig
+	authLock.RLock()
+	if authConfig != nil {
+		defer authLock.RUnlock()
+		return *authConfig
 	}
-	clientLock.RUnlock()
+	authLock.RUnlock()
 
 	// Try to load config if not loaded yet
 	if err := LoadAuthConfig(); err != nil {
 		return AuthConfig{}
 	}
 
-	clientLock.RLock()
-	defer clientLock.RUnlock()
-	return clientConfig
+	authLock.RLock()
+	defer authLock.RUnlock()
+	return *authConfig
 }
 
 /**
@@ -118,34 +114,12 @@ func GetAuthConfig() AuthConfig {
  * }
  */
 func IsAuthConfigured() bool {
-	config := GetAuthConfig()
-	return config.ID != "" && config.AccessToken != "" && config.MachineID != ""
+	auth := GetAuthConfig()
+	return auth.ID != "" && auth.AccessToken != "" && auth.MachineID != ""
 }
 
-/**
- * Get authentication headers for HTTP requests
- * @returns {map[string]string} Returns map of header names and values
- * @description
- * - Returns standard authentication headers including Authorization bearer token
- * - Headers include: Authorization, Content-Type, Accept
- * @example
- * headers := GetAuthHeaders()
- * for key, value := range headers {
- *     req.Header.Set(key, value)
- * }
- */
-func GetAuthHeaders() map[string]string {
-	config := GetAuthConfig()
-	headers := make(map[string]string)
-
-	if config.AccessToken != "" {
-		headers["Authorization"] = "Bearer " + config.AccessToken
-	}
-
-	headers["Content-Type"] = "application/json"
-	headers["Accept"] = "application/json"
-
-	return headers
+func GetAuthHeader() (string, string) {
+	return "Authorization", "Bearer " + GetAuthConfig().AccessToken
 }
 
 /**
@@ -161,8 +135,8 @@ func GetAuthHeaders() map[string]string {
  * }
  */
 func GetBaseURL() string {
-	config := GetAuthConfig()
-	return config.BaseUrl
+	auth := GetAuthConfig()
+	return auth.BaseUrl
 }
 
 /**
@@ -178,38 +152,6 @@ func GetBaseURL() string {
  * }
  */
 func GetMachineID() string {
-	config := GetAuthConfig()
-	return config.MachineID
-}
-
-/**
- * Get client display name
- * @returns {string} Returns client name or empty string if not configured
- * @description
- * - Returns the human-readable client name from configuration
- * - Used for display purposes and logging
- * @example
- * clientName := GetClientName()
- * log.Printf("Client: %s", clientName)
- */
-func GetClientName() string {
-	config := GetAuthConfig()
-	return config.Name
-}
-
-/**
- * Get client unique identifier
- * @returns {string} Returns client ID or empty string if not configured
- * @description
- * - Returns the unique client identifier from configuration
- * - Used for client-specific operations and identification
- * @example
- * clientID := GetClientID()
- * if clientID != "" {
- *     // Use client ID for client-specific requests
- * }
- */
-func GetClientID() string {
-	config := GetAuthConfig()
-	return config.ID
+	auth := GetAuthConfig()
+	return auth.MachineID
 }

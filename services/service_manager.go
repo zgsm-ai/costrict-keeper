@@ -28,14 +28,12 @@ const (
  * @property {models.ServiceSpecification} config - Service configuration
  */
 type ServiceInstance struct {
-	Name      string
-	Status    models.RunStatus
-	StartTime string
-
 	spec        models.ServiceSpecification
 	component   *ComponentInstance
 	proc        *ProcessInstance
 	tun         *TunnelInstance
+	status      models.RunStatus
+	startTime   string
 	port        int
 	failedCount int  //检测失败，连续三次检测失败，需要重启服务
 	child       bool //被本进程直接管理控制的子服务
@@ -89,15 +87,19 @@ func GetServiceManager() *ServiceManager {
 	return serviceManager
 }
 
+// -----------------------------------------------------------------------------
+//
+//	ServiceInstance
+//
+// -----------------------------------------------------------------------------
 func newService(spec *models.ServiceSpecification, cpn *ComponentInstance, child bool) *ServiceInstance {
 	svc := &ServiceInstance{
-		Name:      spec.Name,
-		Status:    models.StatusExited,
+		status:    models.StatusExited,
 		spec:      *spec,
 		component: cpn,
 		child:     child,
 	}
-	svc.proc = svc.createProcessInstance()
+	svc.proc = createProcessInstance(&svc.spec, svc.port)
 	if spec.Accessible == "remote" {
 		svc.tun = CreateTunnel(spec.Name, []int{spec.Port})
 	}
@@ -115,8 +117,8 @@ func newService(spec *models.ServiceSpecification, cpn *ComponentInstance, child
  * UpdateCostrictStatus("running")
  */
 func UpdateCostrictStatus(status string) {
-	svc := serviceManager.GetSelf()
-	svc.Status = models.RunStatus(status)
+	svc := serviceManager.self
+	svc.status = models.RunStatus(status)
 	svc.saveService()
 	serviceManager.export()
 }
@@ -133,10 +135,10 @@ func UpdateCostrictStatus(status string) {
  */
 func (svc *ServiceInstance) GetDetail() models.ServiceDetail {
 	detail := &models.ServiceDetail{
-		Name:      svc.Name,
+		Name:      svc.spec.Name,
 		Port:      svc.port,
-		Status:    svc.Status,
-		StartTime: svc.StartTime,
+		Status:    svc.status,
+		StartTime: svc.startTime,
 		Spec:      svc.spec,
 	}
 	if svc.spec.Accessible == "remote" {
@@ -186,7 +188,7 @@ func (svc *ServiceInstance) GetTunnel() *TunnelInstance {
  * - Returns false if service is not found or unhealthy
  */
 func (svc *ServiceInstance) IsHealthy() bool {
-	if svc.Status != models.StatusRunning {
+	if svc.status != models.StatusRunning {
 		return false
 	}
 	// 如果端口不可用（已被占用），说明服务正在监听
@@ -214,15 +216,15 @@ func (svc *ServiceInstance) getKnowledge() models.ServiceKnowledge {
 	installed := false
 	version := ""
 	if svc.component != nil && svc.component.local != nil {
-		version = utils.PrintVersion(svc.component.local.VersionId)
+		version = svc.component.local.VersionId.String()
 		installed = svc.component.installed
 	}
 	return models.ServiceKnowledge{
-		Name:       svc.Name,
+		Name:       svc.spec.Name,
 		Version:    version,
 		Installed:  installed,
 		Command:    svc.proc.Command,
-		Status:     string(svc.Status),
+		Status:     string(svc.status),
 		Port:       svc.port,
 		Startup:    svc.spec.Startup,
 		Protocol:   svc.spec.Protocol,
@@ -251,15 +253,15 @@ func (svc *ServiceInstance) saveService() {
 	// 确保缓存目录存在
 	cacheDir := filepath.Join(env.CostrictDir, "cache", "services")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		logger.Errorf("Service [%s] save info failed, error: %v", svc.Name, err)
+		logger.Errorf("Service [%s] save info failed, error: %v", svc.spec.Name, err)
 		return
 	}
 
 	var cache ServiceCache
-	cache.Name = svc.Name
+	cache.Name = svc.spec.Name
 	cache.Port = svc.port
-	cache.StartTime = svc.StartTime
-	cache.Status = svc.Status
+	cache.StartTime = svc.startTime
+	cache.Status = svc.status
 	if svc.child {
 		cache.Pid = svc.proc.Pid
 	} else {
@@ -268,18 +270,18 @@ func (svc *ServiceInstance) saveService() {
 
 	jsonData, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
-		logger.Errorf("Service [%s] save info failed, error: %v", svc.Name, err)
+		logger.Errorf("Service [%s] save info failed, error: %v", svc.spec.Name, err)
 		return
 	}
 
 	// 写入文件
-	cacheFile := filepath.Join(cacheDir, svc.Name+".json")
+	cacheFile := filepath.Join(cacheDir, svc.spec.Name+".json")
 	if err := os.WriteFile(cacheFile, jsonData, 0644); err != nil {
-		logger.Errorf("Service [%s] save info failed, error: %v", svc.Name, err)
+		logger.Errorf("Service [%s] save info failed, error: %v", svc.spec.Name, err)
 		return
 	}
 
-	logger.Infof("Service [%s] info saved to %s", svc.Name, cacheFile)
+	logger.Infof("Service [%s] info saved to %s", svc.spec.Name, cacheFile)
 }
 
 /**
@@ -309,25 +311,27 @@ func (svc *ServiceInstance) StartService(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	svc.proc = svc.createProcessInstance()
+	svc.proc = createProcessInstance(&svc.spec, svc.port)
 	if svc.proc.Status == models.StatusError {
-		svc.Status = models.StatusError
+		svc.status = models.StatusError
 		return err
 	}
-	svc.proc.SetOnRestarted(func(pi *ProcessInstance) {
-		if pi.Pid == 0 {
-			svc.Status = models.StatusError
-		} else {
-			svc.Status = models.StatusRunning
-		}
-		svc.saveService()
-	})
+	if env.Daemon && svc.spec.Startup == "always" {
+		svc.proc.EnableWatcher(7, nil, func(pi *ProcessInstance) {
+			if pi.Pid == 0 {
+				svc.status = models.StatusError
+			} else {
+				svc.status = models.StatusRunning
+			}
+			svc.saveService()
+		})
+	}
 	if err := svc.proc.StartProcess(ctx); err != nil {
-		svc.Status = models.StatusError
+		svc.status = models.StatusError
 		return err
 	}
-	svc.Status = models.StatusRunning
-	svc.StartTime = time.Now().Format(time.RFC3339)
+	svc.status = models.StatusRunning
+	svc.startTime = time.Now().Format(time.RFC3339)
 	svc.OpenTunnel(ctx)
 
 	svc.saveService()
@@ -335,7 +339,7 @@ func (svc *ServiceInstance) StartService(ctx context.Context) error {
 }
 
 func (svc *ServiceInstance) StopService() {
-	svc.Status = models.StatusStopped
+	svc.status = models.StatusStopped
 	svc.proc.StopProcess()
 	if svc.tun != nil {
 		svc.tun.CloseTunnel()
@@ -344,12 +348,12 @@ func (svc *ServiceInstance) StopService() {
 }
 
 func (svc *ServiceInstance) RecoverService() {
-	if svc.Status == models.StatusStopped {
+	if svc.status == models.StatusStopped {
 		return
 	}
 	svc.CheckService()
 	if svc.failedCount > 2 {
-		logger.Warnf("Service '%s' failed detection three times, automatically restart", svc.Name)
+		logger.Warnf("Service '%s' failed detection three times, automatically restart", svc.spec.Name)
 		svc.failedCount = 0
 		svc.StopService()
 		svc.StartService(context.Background())
@@ -367,12 +371,12 @@ func (svc *ServiceInstance) RecoverService() {
 }
 
 func (svc *ServiceInstance) CheckService() error {
-	if svc.Status == models.StatusStopped {
+	if svc.status == models.StatusStopped {
 		return nil
 	}
 	if svc.port > 0 {
 		if !utils.CheckPortConnectable(svc.port) {
-			logger.Errorf("Service [%s] is unhealthy", svc.Name)
+			logger.Errorf("Service [%s] is unhealthy", svc.spec.Name)
 			svc.failedCount++
 		} else {
 			svc.failedCount = 0
@@ -385,46 +389,41 @@ func (svc *ServiceInstance) CheckService() error {
 	return nil
 }
 
-/**
- * Create process instance for service execution
- * @returns {ProcessInstance} Returns created process instance
- * @returns {error} Returns error if creation fails, nil on success
- * @description
- * - Adjusts process name for Windows (.exe extension)
- * - Creates ServiceArgs with port, process name, and path
- * - Generates command line using service specification
- * - Creates new ProcessInstance with generated command and args
- * - Used for starting new service processes
- * @throws
- * - Command line generation errors
- */
-func (svc *ServiceInstance) createProcessInstance() *ProcessInstance {
-	name := svc.Name
+func createProcessInstance(spec *models.ServiceSpecification, port int) *ProcessInstance {
+	name := spec.Name
 	if runtime.GOOS == "windows" {
-		name = fmt.Sprintf("%s.exe", svc.Name)
+		name = fmt.Sprintf("%s.exe", spec.Name)
 	}
 	args := ServiceArgs{
-		LocalPort:   svc.port,
+		LocalPort:   port,
 		ProcessName: name,
 		ProcessPath: filepath.Join(env.CostrictDir, "bin", name),
 	}
-	command, cmdArgs, err := utils.GetCommandLine(svc.spec.Command, svc.spec.Args, args)
+	command, cmdArgs, err := utils.GetCommandLine(spec.Command, spec.Args, args)
 	if err != nil {
-		proc := NewProcessInstance("service "+svc.Name, name, command, cmdArgs)
+		proc := NewProcessInstance("service "+spec.Name, name, command, cmdArgs)
 		proc.Status = models.StatusError
 		proc.LastExitReason = err.Error()
 		return proc
 	}
-	return NewProcessInstance("service "+svc.Name, name, command, cmdArgs)
+	return NewProcessInstance("service "+spec.Name, name, command, cmdArgs)
+}
+
+func RunTool(spec *models.ServiceSpecification) error {
+	proc := createProcessInstance(spec, spec.Port)
+	if proc.Status == models.StatusError {
+		return fmt.Errorf("%s", proc.LastExitReason)
+	}
+	return proc.StartProcess(context.Background())
 }
 
 func (svc *ServiceInstance) OpenTunnel(ctx context.Context) error {
 	if svc.spec.Accessible != "remote" {
 		return nil
 	}
-	svc.tun = CreateTunnel(svc.Name, []int{svc.port})
+	svc.tun = CreateTunnel(svc.spec.Name, []int{svc.port})
 	if err := svc.tun.OpenTunnel(ctx); err != nil {
-		logger.Errorf("Start tunnel (%s:%d) failed: %v", svc.Name, svc.port, err)
+		logger.Errorf("Start tunnel (%s:%d) failed: %v", svc.spec.Name, svc.port, err)
 		return err
 	}
 	return nil
@@ -445,8 +444,16 @@ func (svc *ServiceInstance) ReopenTunnel(ctx context.Context) error {
 	return svc.OpenTunnel(ctx)
 }
 
+// -----------------------------------------------------------------------------
+//
+//	ServiceManager
+//
+// -----------------------------------------------------------------------------
 func (sm *ServiceManager) Init() error {
 	for _, spec := range config.Spec().Services {
+		if spec.Startup != "always" {
+			continue
+		}
 		cpn := sm.cm.GetComponent(spec.Name)
 		if cpn == nil {
 			logger.Errorf("component [%s] isn't exist", spec.Name)
@@ -457,28 +464,12 @@ func (sm *ServiceManager) Init() error {
 	}
 	sm.self = newService(&config.Spec().Manager.Service, sm.cm.GetSelf(), false)
 	if env.Daemon {
-		sm.self.Status = models.StatusRunning
+		sm.self.status = models.StatusRunning
 		sm.self.port = env.ListenPort
-		sm.self.StartTime = time.Now().Format(time.RFC3339)
+		sm.self.startTime = time.Now().Format(time.RFC3339)
 		sm.self.saveService()
 	}
 	return nil
-}
-
-/**
- * Get self service instance (costrict manager)
- * @returns {ServiceInstance} Returns the manager service instance
- * @description
- * - Returns the service instance representing the manager itself
- * - Contains manager's PID, port, status, and configuration
- * - Used for manager self-management and monitoring
- * @example
- * serviceManager := GetServiceManager()
- * selfService := serviceManager.GetSelf()
- * fmt.Printf("Manager PID: %d", selfService.Pid)
- */
-func (sm *ServiceManager) GetSelf() *ServiceInstance {
-	return sm.self
 }
 
 /**
@@ -488,12 +479,6 @@ func (sm *ServiceManager) GetSelf() *ServiceInstance {
  * - Returns slice containing all configured service instances
  * - Excludes the self service instance
  * - Used for managing and monitoring configured services
- * @example
- * serviceManager := GetServiceManager()
- * services := serviceManager.GetInstances(true)
- * for _, svc := range services {
- *     fmt.Printf("Service: %s, Status: %s", svc.Name, svc.Status)
- * }
  */
 func (sm *ServiceManager) GetInstances(includeSelf bool) []*ServiceInstance {
 	var svcs []*ServiceInstance
@@ -514,16 +499,10 @@ func (sm *ServiceManager) GetInstances(includeSelf bool) []*ServiceInstance {
  * - Searches for service by name in the services map
  * - Returns nil if service is not found
  * - Used to access specific service information and operations
- * @example
- * serviceManager := GetServiceManager()
- * service := serviceManager.GetInstance("my-service")
- * if service != nil {
- *     fmt.Printf("Service status: %s", service.Status)
- * }
  */
 func (sm *ServiceManager) GetInstance(name string) *ServiceInstance {
 	if name == COSTRICT_NAME {
-		return sm.GetSelf()
+		return sm.self
 	}
 	if svc, exist := sm.services[name]; exist {
 		return svc
@@ -551,11 +530,11 @@ func (sm *ServiceManager) StartAll(ctx context.Context) error {
 	for _, svc := range sm.services {
 		// 只启动启动模式为 "always"和"once" 的服务
 		if svc.spec.Startup == "always" || svc.spec.Startup == "once" {
-			if svc.Status == models.StatusRunning {
+			if svc.status == models.StatusRunning {
 				continue
 			}
 			if err := svc.StartService(ctx); err != nil {
-				logger.Errorf("Failed to start service '%s': %v", svc.Name, err)
+				logger.Errorf("Failed to start service '%s': %v", svc.spec.Name, err)
 			}
 		}
 	}
@@ -606,7 +585,7 @@ func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
 	if !ok {
 		return fmt.Errorf("service %s not found", name)
 	}
-	if svc.Status == models.StatusRunning {
+	if svc.status == models.StatusRunning {
 		return fmt.Errorf("service %s is already running", name)
 	}
 	if err := svc.StartService(ctx); err != nil {
@@ -643,7 +622,7 @@ func (sm *ServiceManager) RestartService(ctx context.Context, name string) error
 		logger.Errorf("Restart [%s] failed: service not found", name)
 		return fmt.Errorf("service %s not found", name)
 	}
-	if svc.Status == models.StatusRunning {
+	if svc.status == models.StatusRunning {
 		svc.StopService()
 	}
 	if err := svc.StartService(ctx); err != nil {
@@ -676,7 +655,7 @@ func (sm *ServiceManager) StopService(name string) error {
 		logger.Errorf("Stop [%s] failed: service not found", name)
 		return fmt.Errorf("service %s not found", name)
 	}
-	if svc.Status != models.StatusRunning {
+	if svc.status != models.StatusRunning {
 		return nil
 	}
 	svc.StopService()
@@ -708,37 +687,7 @@ func (sm *ServiceManager) RecoverServices() {
 
 /**
  * Export service known to well-known.json file
- * @param {context.Context} ctx - Context for request cancellation and timeout
- * @param {string} customOutputPath - Custom output file path, if empty uses default path
- * @returns {error} Returns error if export fails, nil on success
- * @description
- * - Creates new service manager instance
- * - Collects all components, services and endpoints information
- * - Builds WellKnownInfo structure with timestamp
- * - Writes data to JSON file at specified or default location
- * - Creates necessary directories if they don't exist
- * @throws
- * - Component/service information retrieval errors
- * - Directory creation errors
- * - JSON encoding errors
- * - File writing errors
- * @example
- * err := ExportKnowledge(context.Background(), "")
- * if err != nil {
- *     logger.Fatal(err)
- * }
  */
-func (sm *ServiceManager) ExportKnowledge(outputPath string) error {
-	if outputPath == "" {
-		outputPath = filepath.Join(env.CostrictDir, "share", ".well-known.json")
-	}
-	if err := sm.exportKnowledge(outputPath); err != nil {
-		logger.Errorf("Failed to export .well-known to file [%s]: %v", outputPath, err)
-		return err
-	}
-	return nil
-}
-
 func (sm *ServiceManager) exportKnowledge(outputPath string) error {
 	serviceKnowledge := []models.ServiceKnowledge{}
 	serviceKnowledge = append(serviceKnowledge, sm.self.getKnowledge())

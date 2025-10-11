@@ -93,7 +93,14 @@ func (s *Server) Init() error {
  * server.StartAllService()
  */
 func (s *Server) StartAllService() {
-	// s.service.StopAll()
+	for _, spec := range config.Spec().Services {
+		if spec.Startup != "once" {
+			continue
+		}
+		if err := RunTool(&spec); err != nil {
+			logger.Errorf("Run [%s] error: %v", spec.Name, err)
+		}
+	}
 	s.service.StartAll(context.Background())
 }
 
@@ -197,9 +204,10 @@ func (s *Server) StartLogReporting() {
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
 
+	ls := NewLogService()
 	for range ticker.C {
-		if err := s.ReportLogs(); err != nil {
-			logger.Errorf("Log reporting error: %v", err)
+		if err := ls.UploadErrors(); err != nil {
+			logger.Warnf("Log reporting error: %v", err)
 		}
 	}
 }
@@ -297,23 +305,6 @@ func (s *Server) performMidnightCheck() {
 	} else {
 		logger.Info("All components are up to date")
 	}
-}
-
-/**
- * Report logs to remote server
- * @returns {error} Returns error if report fails, nil on success
- * @description
- * - Implements log reporting logic
- * - Currently returns nil (placeholder implementation)
- * - Should be implemented to send logs to configured remote server
- * @example
- * if err := server.ReportLogs(); err != nil {
- *     logger.Error("Log reporting failed:", err)
- * }
- */
-func (s *Server) ReportLogs() error {
-	// 实现日志上报逻辑
-	return nil
 }
 
 /**
@@ -486,7 +477,7 @@ func (s *Server) GetHealthz() models.HealthResponse {
 	activeServices := 0
 	activeTunnels := 0
 	for _, svc := range s.service.GetInstances(false) {
-		if svc.Status == models.StatusRunning {
+		if svc.status == models.StatusRunning {
 			activeServices++
 			tun := svc.GetTunnel()
 			if tun != nil && tun.status == models.StatusRunning {

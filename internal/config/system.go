@@ -33,21 +33,20 @@ import (
  * }
  */
 func FetchRemoteSystemSpecification() error {
-	cfg := utils.UpgradeConfig{}
-	cfg.PackageName = "system"
-	cfg.TargetPath = filepath.Join(env.CostrictDir, "share", "system-spec.json")
-	cfg.BaseUrl = fmt.Sprintf("%s/costrict", GetBaseURL())
-	cfg.Correct()
+	u := utils.NewUpgrader("system", utils.UpgradeConfig{
+		BaseUrl: fmt.Sprintf("%s/costrict", GetBaseURL()),
+		BaseDir: env.CostrictDir,
+	})
 
-	pkg, upgraded, err := utils.UpgradePackage(cfg, nil)
+	pkg, upgraded, err := u.UpgradePackage(nil)
 	if err != nil {
 		logger.Errorf("fetch config failed: %v", err)
 		return err
 	}
 	if !upgraded {
-		logger.Infof("The '%s' version is up to date\n", cfg.PackageName)
+		logger.Infof("The '%s' version is up to date\n", pkg.PackageName)
 	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(pkg.VersionId))
+		logger.Infof("The '%s' is upgraded to version %s\n", pkg.PackageName, pkg.VersionId.String())
 	}
 	return nil
 }

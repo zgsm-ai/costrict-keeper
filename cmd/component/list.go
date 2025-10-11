@@ -47,10 +47,8 @@ func listInfo(ctx context.Context, args []string) {
 	fmt.Printf("Local: %s\n", env.CostrictDir)
 	fmt.Printf("------------------------------------------\n")
 	if len(args) == 0 {
-		// List all components information
 		listAllComponents()
 	} else {
-		// List detailed information of specified component
 		listSpecificComponent(args[0])
 	}
 }
@@ -122,10 +120,10 @@ func listSpecificComponent(name string) {
 		return
 	}
 	cpn := ci.GetDetail()
-	spec := &cpn.Spec
 	fmt.Printf("=== Detailed information of component '%s' ===\n", name)
 	fmt.Printf("Name: %s\n", name)
 	fmt.Printf("Need upgrade: %v\n", cpn.NeedUpgrade)
+	fmt.Printf("Version range: %s\n", cpn.Spec.Version)
 
 	// Display version information
 	if cpn.Local.Version != "" {
@@ -137,17 +135,6 @@ func listSpecificComponent(name string) {
 		fmt.Printf("Latest server version: %s\n", cpn.Remote.Newest)
 	} else {
 		fmt.Printf("Latest server version: Unable to retrieve\n")
-	}
-
-	// Display upgrade configuration
-	if spec.Upgrade != nil {
-		fmt.Printf("Upgrade mode: %s\n", spec.Upgrade.Mode)
-		if spec.Upgrade.Lowest != "" {
-			fmt.Printf("Minimum supported version: %s\n", spec.Upgrade.Lowest)
-		}
-		if spec.Upgrade.Highest != "" {
-			fmt.Printf("Maximum supported version: %s\n", spec.Upgrade.Highest)
-		}
 	}
 }
 

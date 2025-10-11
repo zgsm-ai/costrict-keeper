@@ -5,7 +5,7 @@ RESTful API发生错误，统一返回如下格式信息：
 ```json
 {
     "code": "group.errortag",
-    "message": "detail information"
+    "error": "detail information"
 }
 ```
 

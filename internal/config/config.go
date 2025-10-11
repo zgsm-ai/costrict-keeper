@@ -57,6 +57,7 @@ type CloudConfig struct {
 	TunManagerUrl  string `json:"tunman_url,omitempty"`
 	TunnelUrl      string `json:"tunnel_url,omitempty"`
 	UpgradeUrl     string `json:"upgrade_url,omitempty"`
+	LogUrl         string `json:"log_url,omitempty"`
 }
 
 type AppConfig struct {
@@ -111,6 +112,9 @@ func (cfg *AppConfig) correctConfig() {
 	if cfg.Interval.MetricsReport == 0 {
 		cfg.Interval.MetricsReport = 300
 	}
+	if cfg.Interval.LogReport == 0 {
+		cfg.Interval.LogReport = 600
+	}
 	// LogReportInterval 默认为 0，表示不上报日志
 	if cfg.Cloud.PushgatewayUrl == "" {
 		cfg.Cloud.PushgatewayUrl = "{{.BaseUrl}}/pushgateway"
@@ -123,6 +127,9 @@ func (cfg *AppConfig) correctConfig() {
 	}
 	if cfg.Cloud.TunManagerUrl == "" {
 		cfg.Cloud.TunManagerUrl = "{{.BaseUrl}}/tunnel-manager/api/v1"
+	}
+	if cfg.Cloud.LogUrl == "" {
+		cfg.Cloud.LogUrl = "{{.BaseUrl}}/client-manager/api/v1/logs"
 	}
 	if cfg.Service.MinPort == 0 {
 		cfg.Service.MinPort = 9000
@@ -162,21 +169,19 @@ func (cfg *AppConfig) correctConfig() {
 }
 
 func FetchRemoteConfig() error {
-	cfg := utils.UpgradeConfig{}
-	cfg.PackageName = "costrict-config"
-	cfg.TargetPath = filepath.Join(env.CostrictDir, "config", "costrict.json")
-	cfg.BaseUrl = fmt.Sprintf("%s/costrict", GetBaseURL())
-	cfg.Correct()
-
-	pkg, upgraded, err := utils.UpgradePackage(cfg, nil)
+	u := utils.NewUpgrader("costrict-config", utils.UpgradeConfig{
+		BaseUrl: fmt.Sprintf("%s/costrict", GetBaseURL()),
+		BaseDir: env.CostrictDir,
+	})
+	pkg, upgraded, err := u.UpgradePackage(nil)
 	if err != nil {
 		logger.Errorf("Fetch config failed: %v", err)
 		return err
 	}
 	if !upgraded {
-		logger.Infof("The '%s' version is up to date\n", cfg.PackageName)
+		logger.Infof("The '%s' version is up to date\n", pkg.PackageName)
 	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", cfg.PackageName, utils.PrintVersion(pkg.VersionId))
+		logger.Infof("The '%s' is upgraded to version %s\n", pkg.PackageName, pkg.VersionId.String())
 	}
 	return nil
 }
@@ -204,22 +209,27 @@ func expandCloudConfig(cloud *CloudConfig) *CloudConfig {
 	var err error
 	expand.PushgatewayUrl, err = expandUrl(baseUrl, cloud.PushgatewayUrl)
 	if err != nil {
-		logger.Errorf("Invalid pushgateway_url: %+v", cloud)
+		logger.Errorf("Invalid pushgateway_url: %s", cloud.PushgatewayUrl)
 		return nil
 	}
 	expand.TunManagerUrl, err = expandUrl(baseUrl, cloud.TunManagerUrl)
 	if err != nil {
-		logger.Errorf("Invalid tunmanager_url: %+v", cloud)
+		logger.Errorf("Invalid tunmanager_url: %s", cloud.TunManagerUrl)
 		return nil
 	}
 	expand.TunnelUrl, err = expandUrl(baseUrl, cloud.TunnelUrl)
 	if err != nil {
-		logger.Errorf("Invalid tunnel_url: %+v", cloud)
+		logger.Errorf("Invalid tunnel_url: %s", cloud.TunnelUrl)
 		return nil
 	}
 	expand.UpgradeUrl, err = expandUrl(baseUrl, cloud.UpgradeUrl)
 	if err != nil {
-		logger.Errorf("Invalid upgrade_url: %+v", cloud)
+		logger.Errorf("Invalid upgrade_url: %s", cloud.UpgradeUrl)
+		return nil
+	}
+	expand.LogUrl, err = expandUrl(baseUrl, cloud.LogUrl)
+	if err != nil {
+		logger.Errorf("Invalid log_url: %s", cloud.LogUrl)
 		return nil
 	}
 	return &expand

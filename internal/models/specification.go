@@ -27,30 +27,15 @@ type ServiceSpecification struct {
  * Component configuration
  * @property {string} name - Component name
  * @property {string} version - Version compatibility range
- * @property {UpgradeSpecification} upgrade - Upgrade configuration
  */
 type ComponentSpecification struct {
-	Name       string                `json:"name"`
-	Version    string                `json:"version"`
-	Upgrade    *UpgradeSpecification `json:"upgrade,omitempty"`
-	InstallDir string                `json:"install_dir,omitempty"`
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
 }
 
 type ManagerSpecification struct {
 	Component ComponentSpecification `json:"component"`
 	Service   ServiceSpecification   `json:"service"`
-}
-
-/**
- * Upgrade configuration
- * @property {string} mode - Upgrade mode: auto/manual
- * @property {string} lowest - Lowest version for forced upgrade
- * @property {string} highest - Highest version limit
- */
-type UpgradeSpecification struct {
-	Mode    string `json:"mode"`
-	Lowest  string `json:"lowest"`
-	Highest string `json:"highest"`
 }
 
 /**
@@ -62,6 +47,7 @@ type UpgradeSpecification struct {
  * @property {ManagerSpecification} manager - Service manager configuration
  * @property {[]ComponentSpecification} components - Component configurations
  * @property {[]ServiceSpecification} services - Service configurations
+ * @property {[]ComponentSpecification} configurations - config file configurations
  */
 type SystemSpecification struct {
 	Configuration  string                   `json:"configuration"`

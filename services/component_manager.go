@@ -8,7 +8,6 @@ import (
 	"costrict-keeper/internal/utils"
 	"errors"
 	"fmt"
-	"path/filepath"
 )
 
 var ErrComponentNotFound = errors.New("component not found")
@@ -63,12 +62,12 @@ func (ci *ComponentInstance) GetDetail() models.ComponentDetail {
 		detail.Local.FileName = ci.local.FileName
 		detail.Local.PackageType = string(ci.local.PackageType)
 		detail.Local.Size = ci.local.Size
-		detail.Local.Version = utils.PrintVersion(ci.local.VersionId)
+		detail.Local.Version = ci.local.VersionId.String()
 	}
 	if ci.remote != nil {
-		detail.Remote.Newest = utils.PrintVersion(ci.remote.Newest.VersionId)
+		detail.Remote.Newest = ci.remote.Newest.VersionId.String()
 		for _, v := range ci.remote.Versions {
-			detail.Remote.Versions = append(detail.Remote.Versions, utils.PrintVersion(v.VersionId))
+			detail.Remote.Versions = append(detail.Remote.Versions, v.VersionId.String())
 		}
 	}
 	return detail
@@ -91,19 +90,17 @@ func (ci *ComponentInstance) GetDetail() models.ComponentDetail {
  * @private
  */
 func (ci *ComponentInstance) fetchComponentInfo() error {
-	cfg := utils.UpgradeConfig{
-		PackageName: ci.spec.Name,
-		BaseUrl:     config.Cloud().UpgradeUrl,
-	}
-	cfg.Correct()
+	u := utils.NewUpgrader(ci.spec.Name, utils.UpgradeConfig{
+		BaseUrl: config.Cloud().UpgradeUrl,
+	})
 	ci.needUpgrade = false
 	ci.installed = false
-	local, err := utils.GetLocalVersion(cfg)
+	local, err := u.GetLocalVersion(nil)
 	if err == nil {
 		ci.local = &local
 		ci.installed = true
 	}
-	remote, err := utils.GetRemoteVersions(cfg)
+	remote, err := u.GetRemoteVersions()
 	if err == nil {
 		ci.remote = &remote
 		if utils.CompareVersion(local.VersionId, remote.Newest.VersionId) < 0 {
@@ -130,16 +127,10 @@ func (ci *ComponentInstance) fetchComponentInfo() error {
  */
 func (ci *ComponentInstance) upgradeComponent() error {
 	// 解析版本号 - 由于新结构体中没有版本信息，使用默认版本
-	upgradeCfg := utils.UpgradeConfig{
-		PackageName: ci.spec.Name,
-		BaseUrl:     config.Cloud().UpgradeUrl,
-	}
-	if ci.spec.InstallDir != "" {
-		upgradeCfg.InstallDir = filepath.Join(env.CostrictDir, ci.spec.InstallDir)
-	}
-	upgradeCfg.Correct()
-
-	pkg, upgraded, err := utils.UpgradePackage(upgradeCfg, nil)
+	u := utils.NewUpgrader(ci.spec.Name, utils.UpgradeConfig{
+		BaseUrl: config.Cloud().UpgradeUrl,
+	})
+	pkg, upgraded, err := u.UpgradePackage(nil)
 	if err != nil {
 		logger.Errorf("The '%s' upgrade failed: %v", ci.spec.Name, err)
 		return err
@@ -148,9 +139,9 @@ func (ci *ComponentInstance) upgradeComponent() error {
 	if !upgraded {
 		logger.Infof("The '%s' version is up to date\n", ci.spec.Name)
 	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", ci.spec.Name, utils.PrintVersion(pkg.VersionId))
+		logger.Infof("The '%s' is upgraded to version %s\n", ci.spec.Name, pkg.VersionId.String())
 	}
-	vers, err := utils.GetRemoteVersions(upgradeCfg)
+	vers, err := u.GetRemoteVersions()
 	if err != nil {
 		logger.Errorf("GetRemoteVersions failed: %v", err)
 		return err
@@ -167,8 +158,11 @@ func (ci *ComponentInstance) removeComponent() error {
 	if !ci.installed {
 		return fmt.Errorf("component '%s' is not installed", ci.spec.Name)
 	}
+	u := utils.NewUpgrader(ci.spec.Name, utils.UpgradeConfig{
+		BaseDir: env.CostrictDir,
+	})
 	// Remove the package
-	if err := utils.RemovePackage(env.CostrictDir, ci.spec.Name, nil); err != nil {
+	if err := u.RemovePackage(nil); err != nil {
 		return fmt.Errorf("failed to remove component %s: %v", ci.spec.Name, err)
 	}
 
@@ -338,7 +332,10 @@ func (cm *ComponentManager) UpgradeAll() error {
 			cpn.upgradeComponent()
 		}
 	}
-	utils.CleanupOldVersions("")
+	u := utils.NewUpgrader("", utils.UpgradeConfig{
+		BaseDir: env.CostrictDir,
+	})
+	u.CleanupOldVersions()
 	return nil
 }
 
@@ -358,7 +355,7 @@ func (cm *ComponentManager) CheckComponents() int {
 	logger.Info("Starting component update check...")
 
 	upgradeCount := 0
-	components := []*ComponentInstance{}
+	components := []*ComponentInstance{&cm.self}
 	for _, cpn := range cm.components {
 		components = append(components, cpn)
 	}
@@ -375,7 +372,7 @@ func (cm *ComponentManager) CheckComponents() int {
 		// Check if upgrade is needed
 		if cpn.needUpgrade {
 			logger.Infof("Component %s needs upgrade from %s to %s", cpn.spec.Name,
-				utils.PrintVersion(cpn.local.VersionId), utils.PrintVersion(cpn.remote.Newest.VersionId))
+				cpn.local.VersionId.String(), cpn.remote.Newest.VersionId.String())
 			upgradeCount++
 		}
 	}

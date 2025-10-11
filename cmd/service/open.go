@@ -46,17 +46,13 @@ func openTunnel(appName string) {
 		fmt.Printf("Failed to call costrict API: %v\n", err)
 		return
 	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		if resp.Error != "" {
-			fmt.Printf("Costrict API returned error: %s\n", resp.Error)
-			return
-		}
-		fmt.Printf("Unexpected response from costrict API\n")
+	if resp.Error != "" {
+		fmt.Printf("Costrict API returned error(%d): %s\n", resp.StatusCode, resp.Error)
 		return
 	}
 
 	var tun models.TunnelDetail
-	if err := json.Unmarshal([]byte(resp.Text), &tun); err != nil {
+	if err := json.Unmarshal(resp.Body, &tun); err != nil {
 		fmt.Printf("Failed to unmarshal tunnel instance: %v\n", err)
 		return
 	}

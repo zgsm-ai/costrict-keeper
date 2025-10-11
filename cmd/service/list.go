@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/rpc"
@@ -81,17 +80,13 @@ func showAllServices(client rpc.HTTPClient) error {
 		fmt.Printf("Failed to call costrict API: %v\n", err)
 		return err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		if resp.Error != "" {
-			fmt.Printf("Costrict API returned error: %s\n", resp.Error)
-			return fmt.Errorf("API error: %s", resp.Error)
-		}
-		fmt.Printf("Unexpected response from costrict API (status: %d)\n", resp.StatusCode)
-		return fmt.Errorf("unexpected response status: %d", resp.StatusCode)
+	if resp.Error != "" {
+		fmt.Printf("Costrict API returned error(%d): %s\n", resp.StatusCode, resp.Error)
+		return fmt.Errorf("API error: %s", resp.Error)
 	}
 
 	var services []models.ServiceDetail
-	if err := json.Unmarshal([]byte(resp.Text), &services); err != nil {
+	if err := json.Unmarshal(resp.Body, &services); err != nil {
 		fmt.Printf("Failed to unmarshal service list: %v\n", err)
 		return err
 	}
@@ -193,21 +188,13 @@ func getServiceDetail(client rpc.HTTPClient, name string) (*models.ServiceDetail
 		fmt.Printf("Failed to call costrict API: %v\n", err)
 		return nil, err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		if resp.Error != "" {
-			fmt.Printf("Costrict API returned error: %s\n", resp.Error)
-			return nil, fmt.Errorf("API error: %s", resp.Error)
-		}
-		if resp.StatusCode == 404 {
-			fmt.Printf("Service named '%s' not found\n", name)
-			return nil, os.ErrNotExist
-		}
-		fmt.Printf("Unexpected response from costrict API (status: %d)\n", resp.StatusCode)
-		return nil, fmt.Errorf("unexpected response status: %d", resp.StatusCode)
+	if resp.Error != "" {
+		fmt.Printf("Costrict API returned error(%d): %s\n", resp.StatusCode, resp.Error)
+		return nil, fmt.Errorf("API error: %s", resp.Error)
 	}
 
 	var detail models.ServiceDetail
-	if err := json.Unmarshal([]byte(resp.Text), &detail); err != nil {
+	if err := json.Unmarshal(resp.Body, &detail); err != nil {
 		fmt.Printf("Failed to unmarshal service detail: %v\n", err)
 		return nil, err
 	}

@@ -47,17 +47,13 @@ func checkServerStatus() {
 		fmt.Printf("Failed to call costrict API: %v\n", err)
 		return
 	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		if resp.Error != "" {
-			fmt.Printf("Costrict API returned error: %s\n", resp.Error)
-			return
-		}
-		fmt.Printf("Unexpected response from costrict API\n")
+	if resp.Error != "" {
+		fmt.Printf("Costrict API returned error(%d): %s\n", resp.StatusCode, resp.Error)
 		return
 	}
 
 	var checkResp models.CheckResponse
-	if err := json.Unmarshal([]byte(resp.Text), &checkResp); err != nil {
+	if err := json.Unmarshal(resp.Body, &checkResp); err != nil {
 		fmt.Printf("Failed to unmarshal check response: %v\n", err)
 		return
 	}

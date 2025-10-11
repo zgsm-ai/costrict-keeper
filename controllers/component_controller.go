@@ -3,6 +3,7 @@ package controllers
 import (
 	"costrict-keeper/internal/models"
 	"costrict-keeper/services"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 )
@@ -67,20 +68,20 @@ func (c *ComponentController) ListComponents(g *gin.Context) {
 // @Tags Components
 // @Param name path string true "组件名称"
 // @Success 200 {object} map[string]interface{}
-// @Failure 404 {object} map[string]string "{"code": "component.not_found", "message": "Component not found"}"
+// @Failure 404 {object} models.ErrorResponse
 // @Router /costrict/api/v1/components/{name}/upgrade [post]
 func (c *ComponentController) UpgradeComponent(g *gin.Context) {
 	name := g.Param("name")
 	if err := c.component.UpgradeComponent(name); err != nil {
 		if err == services.ErrComponentNotFound {
-			g.JSON(404, gin.H{
-				"code":    "component.not_found",
-				"message": "Component not found",
+			g.JSON(404, &models.ErrorResponse{
+				Code:  "component.not_found",
+				Error: fmt.Sprintf("Component [%s] isn't exist", name),
 			})
 		} else {
-			g.JSON(500, gin.H{
-				"code":    "component.upgrade_failed",
-				"message": err.Error(),
+			g.JSON(500, &models.ErrorResponse{
+				Code:  "component.upgrade_failed",
+				Error: err.Error(),
 			})
 		}
 		return
@@ -93,15 +94,15 @@ func (c *ComponentController) UpgradeComponent(g *gin.Context) {
 // @Tags Components
 // @Param name path string true "组件名称"
 // @Success 200 {object} models.ComponentDetail
-// @Failure 404 {object} map[string]interface{} "{"code": "component.not_found", "message": "Component not found"}"
+// @Failure 404 {object} models.ErrorResponse
 // @Router /costrict/api/v1/components/{name} [get]
 func (c *ComponentController) GetComponentDetail(g *gin.Context) {
 	name := g.Param("name")
 	ci := c.component.GetComponent(name)
 	if ci == nil {
-		g.JSON(404, gin.H{
-			"code":    "component.not_found",
-			"message": "Component not found",
+		g.JSON(404, &models.ErrorResponse{
+			Code:  "component.not_found",
+			Error: fmt.Sprintf("Component [%s] isn't exist", name),
 		})
 		return
 	}
@@ -113,12 +114,15 @@ func (c *ComponentController) GetComponentDetail(g *gin.Context) {
 // @Tags Components
 // @Param name path string true "组件名称"
 // @Success 200 {object} map[string]interface{}
-// @Failure 404 {object} map[string]interface{}
+// @Failure 404 {object} models.ErrorResponse
 // @Router /costrict/api/v1/components/{name} [delete]
 func (c *ComponentController) DeleteComponent(g *gin.Context) {
 	_ = g.Param("name")
 
 	// 注意：这里需要实现删除组件的逻辑
 	// 目前先返回成功状态，实际项目中需要实现具体的删除逻辑
-	g.JSON(200, gin.H{"status": "success", "message": "component deletion not implemented yet"})
+	g.JSON(404, &models.ErrorResponse{
+		Code:  "component.not_implemented",
+		Error: "component deletion not implemented yet",
+	})
 }

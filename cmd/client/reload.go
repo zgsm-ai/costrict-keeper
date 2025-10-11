@@ -44,20 +44,11 @@ func reloadServerConfig(ctx context.Context) {
 		fmt.Printf("Failed to call costrict API: %v\n", err)
 		return
 	}
-
-	// 检查HTTP状态码是否在200-299范围内
-	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
-		fmt.Printf("Successfully reloaded server configuration, status code: %d\n", resp.StatusCode)
-		return
-	}
-
-	// 如果响应中包含错误信息
 	if resp.Error != "" {
-		fmt.Printf("Costrict API returned error: %s\n", resp.Error)
+		fmt.Printf("Costrict API returned error(%d): %s\n", resp.StatusCode, resp.Error)
 		return
 	}
-
-	fmt.Printf("Unexpected response from costrict API, status code: %d\n", resp.StatusCode)
+	fmt.Printf("Successfully reloaded server configuration, status code: %d\n", resp.StatusCode)
 }
 
 func init() {

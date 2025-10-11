@@ -3,6 +3,7 @@ package rpc
 import (
 	"bytes"
 	"costrict-keeper/internal/env"
+	"costrict-keeper/internal/models"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,11 +43,10 @@ func DefaultHTTPConfig() *HTTPConfig {
 
 // HTTPResponse 定义HTTP响应结构
 type HTTPResponse struct {
-	StatusCode int                    `json:"status_code"`
-	Headers    map[string][]string    `json:"headers"`
-	Body       map[string]interface{} `json:"body"`
-	Text       string                 `json:"text"`
-	Error      string                 `json:"error"`
+	StatusCode int                 `json:"status_code"`
+	Headers    map[string][]string `json:"headers"`
+	Body       []byte              `json:"body"`
+	Error      string              `json:"error"`
 }
 
 // buildURL 构建完整的URL
@@ -112,28 +112,29 @@ func deserializeResponse(resp *http.Response) (*HTTPResponse, error) {
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 	}
-
-	// 读取响应体
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 	defer resp.Body.Close()
-
-	// 如果响应体为空，直接返回
-	if len(body) == 0 {
+	httpResp.Body = body
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return httpResp, nil
 	}
-	httpResp.Text = string(body)
-	// 尝试解析JSON
-	if err := json.Unmarshal(body, &httpResp.Body); err != nil {
-		httpResp.Error = err.Error()
-	} else {
-		if errorMsg, exists := httpResp.Body["error"]; exists {
-			if errorStr, ok := errorMsg.(string); ok {
-				httpResp.Error = errorStr
-			}
+	if len(body) == 0 {
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			httpResp.Error = resp.Status
 		}
+	} else {
+		var errBody models.ErrorResponse
+		if err := json.Unmarshal(body, &errBody); err != nil {
+			httpResp.Error = err.Error()
+		} else {
+			httpResp.Error = errBody.Error
+		}
+	}
+	if httpResp.Error == "" {
+		httpResp.Error = "Unknown error"
 	}
 	return httpResp, nil
 }

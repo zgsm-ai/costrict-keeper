@@ -32,23 +32,21 @@ var upgradeCmd = &cobra.Command{
 }
 
 func upgradeComponent(component string, version string) error {
-	cfg := utils.UpgradeConfig{
-		PackageName: component,
-		BaseUrl:     config.Cloud().UpgradeUrl,
-	}
-	cfg.Correct()
+	u := utils.NewUpgrader(component, utils.UpgradeConfig{
+		BaseUrl: config.Cloud().UpgradeUrl,
+	})
 
 	var specVer *utils.VersionNumber
 	if version != "" {
-		v, err := utils.ParseVersion(version)
-		if err != nil {
+		var v utils.VersionNumber
+		if err := v.Parse(version); err != nil {
 			fmt.Printf("Invalid version number: %s\n", version)
 			return err
 		}
 		specVer = &v
 	}
 
-	pkg, upgraded, err := utils.UpgradePackage(cfg, specVer)
+	pkg, upgraded, err := u.UpgradePackage(specVer)
 	if err != nil {
 		fmt.Printf("The '%s' upgrade failed: %v\n", component, err)
 		return err
@@ -56,7 +54,7 @@ func upgradeComponent(component string, version string) error {
 	if !upgraded {
 		fmt.Printf("The '%s' version is up to date\n", component)
 	} else {
-		fmt.Printf("The '%s' is upgraded to version %s\n", component, utils.PrintVersion(pkg.VersionId))
+		fmt.Printf("The '%s' is upgraded to version %s\n", component, pkg.VersionId.String())
 	}
 	return nil
 }

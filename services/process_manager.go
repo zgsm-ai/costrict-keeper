@@ -8,16 +8,22 @@ import (
 	"sync"
 	"time"
 
-	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/utils"
 )
 
+type processWatcher struct {
+	enabled         bool                   //是否启动监测协程
+	maxRestartCount int                    //最大重启次数(监测程序通过重启解决临时故障)
+	onExited        func(*ProcessInstance) //监测到进程退出时的回调函数
+	onRestarted     func(*ProcessInstance) //监测到进程已经重启的回调函数
+}
+
 /**
  * ProcessInstance 进程实例信息
  * @property {string} title - 进程标题，用于显示
- * @property {string} processName - 进程列表显示的进程名，processName+pid可以确定一个进程身份，放误杀
+ * @property {string} procName - 进程列表显示的进程名，processName+pid可以确定一个进程身份，放误杀
  * @property {string} command - 执行命令
  * @property {[]string} args - 命令参数
  * @property {string} workDir - 工作目录
@@ -27,31 +33,29 @@ import (
  * @property {time.Time} startTime - 启动时间
  * @property {time.Time} lastExitTime - 最后退出时间
  * @property {string} lastExitReason - 最后退出原因
- * @property {int} maxRestartCount - 最大重启次数
+ * @property {processWatcher} watcher - 监控协程设置
  */
 type ProcessInstance struct {
-	Title           string                 //显示用的名字
-	ProcessName     string                 //进程名，用于查找进程
-	Command         string                 //进程启动命令
-	Args            []string               //进程参数
-	WorkDir         string                 //工作目录
-	MaxRestartCount int                    //最大重启次数
-	Pid             int                    //进程PID
-	Status          models.RunStatus       //状态
-	RestartCount    int                    //重启次数
-	StartTime       time.Time              //启动时间
-	LastExitTime    time.Time              //最后一次退出的时间
-	LastExitReason  string                 //最后一次退出的原因
-	onExited        func(*ProcessInstance) //监测到进程退出时的回调函数
-	onRestarted     func(*ProcessInstance) //监测到进程已经重启的回调函数
-	process         *os.Process            //统一的进程对象，用于Wait()
-	mutex           sync.RWMutex           //保护实例数据一致性的读写锁
+	Title          string           //显示用的名字
+	ProcessName    string           //进程名，用于查找进程
+	Command        string           //进程启动命令
+	Args           []string         //进程参数
+	WorkDir        string           //工作目录
+	Pid            int              //进程PID
+	Status         models.RunStatus //状态
+	RestartCount   int              //重启次数
+	StartTime      time.Time        //启动时间
+	LastExitTime   time.Time        //最后一次退出的时间
+	LastExitReason string           //最后一次退出的原因
+	watcher        processWatcher   //监测协程的设置
+	process        *os.Process      //统一的进程对象，用于Wait()
+	mutex          sync.Mutex       //保护实例数据一致性的读写锁
 }
 
 /**
  * NewProcessInstance 创建新的进程实例
  * @param {string} title - 进程标题，可以唯一确定一个进程，即使它重启过
- * @param {string} processName - 进程名
+ * @param {string} procName - 进程名
  * @param {string} command - 执行命令
  * @param {[]string} args - 命令参数
  * @returns {ProcessInstance} 返回创建的进程实例
@@ -59,25 +63,30 @@ type ProcessInstance struct {
  * - 创建并初始化一个新的进程实例
  * - 设置默认的进程状态和属性
  */
-func NewProcessInstance(title, processName, command string, args []string) *ProcessInstance {
+func NewProcessInstance(title, procName, command string, args []string) *ProcessInstance {
 	return &ProcessInstance{
-		Title:           title,
-		ProcessName:     processName,
-		Command:         command,
-		Args:            args,
-		WorkDir:         "",
-		MaxRestartCount: 7,
-		RestartCount:    0,
-		Status:          models.StatusExited,
+		Title:        title,
+		ProcessName:  procName,
+		Command:      command,
+		Args:         args,
+		WorkDir:      "",
+		RestartCount: 0,
+		Status:       models.StatusExited,
 	}
 }
 
-func (proc *ProcessInstance) SetOnExited(callback func(*ProcessInstance)) {
-	proc.onExited = callback
+func (proc *ProcessInstance) EnableWatcher(maxRestart int, onExited, onRestarted func(*ProcessInstance)) {
+	proc.watcher.enabled = true
+	proc.watcher.onExited = onExited
+	proc.watcher.onRestarted = onRestarted
+	proc.watcher.maxRestartCount = maxRestart
 }
 
-func (proc *ProcessInstance) SetOnRestarted(callback func(*ProcessInstance)) {
-	proc.onRestarted = callback
+func (proc *ProcessInstance) DisableWatcher() {
+	proc.watcher.enabled = false
+	proc.watcher.onExited = nil
+	proc.watcher.onRestarted = nil
+	proc.watcher.maxRestartCount = 0
 }
 
 func (proc *ProcessInstance) GetDetail() models.ProcessDetail {
@@ -87,7 +96,7 @@ func (proc *ProcessInstance) GetDetail() models.ProcessDetail {
 		Command:         proc.Command,
 		Args:            proc.Args,
 		WorkDir:         proc.WorkDir,
-		MaxRestartCount: proc.MaxRestartCount,
+		MaxRestartCount: proc.watcher.maxRestartCount,
 		Status:          proc.Status,
 		Pid:             proc.Pid,
 		RestartCount:    proc.RestartCount,
@@ -133,8 +142,8 @@ func (proc *ProcessInstance) AttachProcess(pid int) error {
 
 	logger.Infof("Process '%s' attached (PID: %d, NAME: %s)", proc.Title, pid, proc.ProcessName)
 	// 启动协程监控进程
-	if env.Daemon {
-		go proc.monitorProcess()
+	if proc.watcher.enabled {
+		go proc.watchProcess()
 	}
 	return nil
 }
@@ -171,7 +180,7 @@ func (proc *ProcessInstance) StartProcess(ctx context.Context) error {
 		cmd.Dir = proc.WorkDir
 	}
 
-	if !env.Daemon {
+	if !proc.watcher.enabled {
 		// 设置进程属性，使子进程在父进程退出后继续运行
 		utils.SetNewPG(cmd)
 	}
@@ -191,8 +200,8 @@ func (proc *ProcessInstance) StartProcess(ctx context.Context) error {
 
 	logger.Infof("Process '%s' started (PID: %d)", proc.Title, proc.Pid)
 
-	if env.Daemon { // costrict.exe作为服务器运行时，启动协程监控子进程
-		go proc.monitorProcess()
+	if proc.watcher.enabled { // costrict.exe作为服务器运行时，启动协程监控子进程
+		go proc.watchProcess()
 	}
 	return nil
 }
@@ -247,7 +256,7 @@ func (proc *ProcessInstance) CheckProcess() {
 }
 
 /**
- * monitorProcess 监控进程状态的协程
+ * watchProcess 监控进程状态的协程
  * @param {ProcessInstance} proc - 进程实例
  * @description
  * - 使用协程监控进程状态
@@ -255,16 +264,12 @@ func (proc *ProcessInstance) CheckProcess() {
  * - 如果进程配置了自动重启，在进程退出时自动重启
  * - 更新进程状态并记录退出原因
  */
-func (proc *ProcessInstance) monitorProcess() {
+func (proc *ProcessInstance) watchProcess() {
 	_, err := proc.process.Wait()
 
 	proc.mutex.Lock()
 	defer proc.mutex.Unlock()
 
-	proc.doExited(err)
-}
-
-func (proc *ProcessInstance) doExited(err error) {
 	if proc.Status == models.StatusStopped {
 		logger.Infof("Process '%s' (PID: %d) stopped by user", proc.Title, proc.Pid)
 		return
@@ -281,8 +286,8 @@ func (proc *ProcessInstance) doExited(err error) {
 	}
 	proc.process = nil
 	proc.Pid = 0
-	if proc.onExited != nil {
-		proc.onExited(proc)
+	if proc.watcher.onExited != nil {
+		proc.watcher.onExited(proc)
 	} else {
 		proc.autoRestart()
 	}
@@ -299,30 +304,27 @@ func (proc *ProcessInstance) doExited(err error) {
  */
 func (proc *ProcessInstance) autoRestart() {
 	// 检查是否需要自动重启：非服务器模式不自动重启，重启次数是否超过限制也不自动重启
-	if !env.Daemon {
+	if !proc.watcher.enabled || proc.watcher.maxRestartCount == 0 {
 		return
 	}
-	if proc.MaxRestartCount > 0 && proc.RestartCount >= proc.MaxRestartCount {
+	if proc.RestartCount >= proc.watcher.maxRestartCount {
 		logger.Warnf("Process '%s' has reached maximum restart count (%d), not restarting",
-			proc.Title, proc.MaxRestartCount)
+			proc.Title, proc.watcher.maxRestartCount)
 		return
 	}
 
-	logger.Infof("Process '%s' will restart in %v (restart count: %d)",
-		proc.Title, time.Second, proc.RestartCount)
-	// 延迟重启
+	logger.Infof("Process '%s' will restart in %v (restart: %d/%d)",
+		proc.Title, time.Second, proc.RestartCount, proc.watcher.maxRestartCount)
+	// 延迟重启，避免死锁
 	time.AfterFunc(time.Second, func() {
-		// proc.mutex.Lock()
-		// defer proc.mutex.Unlock()
-
 		if proc.Status == models.StatusStopped {
 			logger.Infof("Process '%s' stopped by user, needn't restart", proc.Title)
 			return
 		}
 		proc.RestartCount++
 		proc.StartProcess(context.Background())
-		if proc.onRestarted != nil {
-			proc.onRestarted(proc)
+		if proc.watcher.onRestarted != nil {
+			proc.watcher.onRestarted(proc)
 		}
 	})
 }
