@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"costrict-keeper/cmd/root"
+	"costrict-keeper/internal/config"
 	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/rpc"
 
@@ -54,6 +55,13 @@ func displayStates(results models.ServerState) {
 	fmt.Printf("启动时间: %s\n", results.StartTime.Format(time.RFC3339))
 	fmt.Println()
 
+	fmt.Println("=== 环境信息 ===")
+	fmt.Printf("云端地址: %s\n", config.GetBaseURL())
+	fmt.Printf("安装目录: %s\n", results.Env.CostrictDir)
+	fmt.Printf("侦听端口: %v\n", results.Env.ListenPort)
+	fmt.Printf("软件版本: %v\n", results.Env.Version)
+	fmt.Println()
+
 	// Display midnight rooster status
 	fmt.Println("=== 半夜鸡叫信息 ===")
 	fmt.Printf("状态: %s\n", results.MidnightRooster.Status)
@@ -63,12 +71,6 @@ func displayStates(results models.ServerState) {
 	fmt.Println("=== 端口分配信息 ===")
 	fmt.Printf("可分配范围: [%d, %d]\n", results.PortAlloc.Min, results.PortAlloc.Max)
 	fmt.Printf("已分配端口(%d): %v\n", len(results.PortAlloc.Allocates), results.PortAlloc.Allocates)
-	fmt.Println()
-
-	fmt.Println("=== 环境信息 ===")
-	fmt.Printf("CostrictDir: %v\n", results.Env.CostrictDir)
-	fmt.Printf("ListenPort: %v\n", results.Env.ListenPort)
-	fmt.Printf("Version: %v\n", results.Env.Version)
 	fmt.Println()
 
 	fmt.Println("=== 配置 ===")

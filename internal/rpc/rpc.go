@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,23 +23,34 @@ type HTTPClient interface {
 	Patch(path string, data interface{}) (*HTTPResponse, error)
 	Delete(path string, params map[string]interface{}) (*HTTPResponse, error)
 	Close() error
-	IsConnected() bool
 }
 
 // HTTPConfig 定义HTTP客户端配置
 type HTTPConfig struct {
-	ServerName string        `json:"server_name"` // 服务器名称，用于创建唯一的通讯端点
-	Timeout    time.Duration `json:"timeout"`     // 默认超时时间
-	BaseURL    string        `json:"base_url"`    // 基础URL
+	Address string        //costrict服务侦听地址
+	Network string        //unix,tcp...
+	Timeout time.Duration // 默认超时时间
+	BaseURL string        // 基础URL
 }
 
 // DefaultHTTPConfig 返回默认HTTP客户端配置
 func DefaultHTTPConfig() *HTTPConfig {
-	return &HTTPConfig{
-		ServerName: "costrict",
-		Timeout:    5 * time.Second,
-		BaseURL:    "http://localhost",
+	c := &HTTPConfig{
+		Address: getSocketPath("costrict.sock", ""),
+		Network: "unix",
+		Timeout: 5 * time.Second,
+		BaseURL: "http://localhost",
 	}
+	// 检查socket文件是否存在
+	if _, err := os.Stat(c.Address); os.IsNotExist(err) {
+		c.Address = getTcpAddress()
+		c.Network = "tcp"
+	}
+	if c.Address == "" {
+		c.Address = "127.0.0.1:8999"
+		c.Network = "tcp"
+	}
+	return c
 }
 
 // HTTPResponse 定义HTTP响应结构
@@ -140,21 +152,32 @@ func deserializeResponse(resp *http.Response) (*HTTPResponse, error) {
 }
 
 /**
- * Get full path for Unix socket
- * @param {string} socketName - Name of the socket file
- * @param {string} socketDir - Directory for socket file (optional, uses default if empty)
- * @returns {string} Full path to socket file
- * @description
- * - Constructs socket path using provided directory or platform-specific default
- * - Handles cross-platform path construction
- * - Returns path in format: {socketDir}/{socketName}
- * @example
- * path := GetSocketPath("costrict.sock", "")
- * fmt.Printf("Socket path: %s", path)
+ * costrict服务侦听的unix socket地址
  */
-func GetSocketPath(socketName string, socketDir string) string {
+func getSocketPath(socketName string, socketDir string) string {
 	if socketDir == "" {
 		socketDir = filepath.Join(env.CostrictDir, "run")
 	}
 	return filepath.Join(socketDir, socketName)
+}
+
+/**
+ * costrict服务侦听的tcp地址
+ */
+func getTcpAddress() string {
+	knownFile := filepath.Join(env.CostrictDir, "share", ".well-known.json")
+	data, err := os.ReadFile(knownFile)
+	if err != nil {
+		return ""
+	}
+	var known models.SystemKnowledge
+	if err = json.Unmarshal(data, &known); err != nil {
+		return ""
+	}
+	for _, s := range known.Services {
+		if s.Name == "costrict" {
+			return fmt.Sprintf("127.0.0.1:%d", s.Port)
+		}
+	}
+	return ""
 }

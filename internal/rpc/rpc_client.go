@@ -5,22 +5,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sync"
 
-	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 )
 
 // httpClient HTTP客户端实现
 type httpClient struct {
-	config     *HTTPConfig
-	client     *http.Client
-	transport  *http.Transport
-	connected  bool
-	socketPath string
-	mu         sync.Mutex
+	config    *HTTPConfig
+	client    *http.Client
+	transport *http.Transport
 }
 
 // NewHTTPClient 创建HTTP客户端实例
@@ -56,6 +49,9 @@ func NewHTTPClient(config *HTTPConfig) HTTPClient {
 	// 初始化transport，但不立即连接
 	client.transport = &http.Transport{
 		// 其他配置可以在这里设置
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return net.Dial(config.Network, config.Address)
+		},
 	}
 
 	client.client = &http.Client{
@@ -66,7 +62,6 @@ func NewHTTPClient(config *HTTPConfig) HTTPClient {
 	return client
 }
 
-// Get 发送GET请求
 /**
  * Send GET request to server via Unix socket
  * @param {string} path - API endpoint path
@@ -93,10 +88,6 @@ func NewHTTPClient(config *HTTPConfig) HTTPClient {
  * }
  */
 func (c *httpClient) Get(path string, params map[string]interface{}) (*HTTPResponse, error) {
-	if err := c.ensureConnected(); err != nil {
-		return nil, err
-	}
-
 	url, err := buildURL(c.config.BaseURL, path, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build URL: %w", err)
@@ -125,7 +116,6 @@ func (c *httpClient) Get(path string, params map[string]interface{}) (*HTTPRespo
 	return httpResp, nil
 }
 
-// Post 发送POST请求
 /**
  * Send POST request to server via Unix socket
  * @param {string} path - API endpoint path
@@ -155,10 +145,6 @@ func (c *httpClient) Get(path string, params map[string]interface{}) (*HTTPRespo
  * }
  */
 func (c *httpClient) Post(path string, data interface{}) (*HTTPResponse, error) {
-	if err := c.ensureConnected(); err != nil {
-		return nil, err
-	}
-
 	url, err := buildURL(c.config.BaseURL, path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build URL: %w", err)
@@ -196,7 +182,6 @@ func (c *httpClient) Post(path string, data interface{}) (*HTTPResponse, error) 
 	return httpResp, nil
 }
 
-// Put 发送PUT请求
 /**
  * Send PUT request to server via Unix socket
  * @param {string} path - API endpoint path
@@ -226,10 +211,6 @@ func (c *httpClient) Post(path string, data interface{}) (*HTTPResponse, error) 
  * }
  */
 func (c *httpClient) Put(path string, data interface{}) (*HTTPResponse, error) {
-	if err := c.ensureConnected(); err != nil {
-		return nil, err
-	}
-
 	url, err := buildURL(c.config.BaseURL, path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build URL: %w", err)
@@ -267,7 +248,6 @@ func (c *httpClient) Put(path string, data interface{}) (*HTTPResponse, error) {
 	return httpResp, nil
 }
 
-// Patch 发送PATCH请求
 /**
  * Send PATCH request to server via Unix socket
  * @param {string} path - API endpoint path
@@ -296,10 +276,6 @@ func (c *httpClient) Put(path string, data interface{}) (*HTTPResponse, error) {
  * }
  */
 func (c *httpClient) Patch(path string, data interface{}) (*HTTPResponse, error) {
-	if err := c.ensureConnected(); err != nil {
-		return nil, err
-	}
-
 	url, err := buildURL(c.config.BaseURL, path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build URL: %w", err)
@@ -337,7 +313,6 @@ func (c *httpClient) Patch(path string, data interface{}) (*HTTPResponse, error)
 	return httpResp, nil
 }
 
-// Delete 发送DELETE请求
 /**
  * Send DELETE request to server via Unix socket
  * @param {string} path - API endpoint path
@@ -362,10 +337,6 @@ func (c *httpClient) Patch(path string, data interface{}) (*HTTPResponse, error)
  * }
  */
 func (c *httpClient) Delete(path string, params map[string]interface{}) (*HTTPResponse, error) {
-	if err := c.ensureConnected(); err != nil {
-		return nil, err
-	}
-
 	url, err := buildURL(c.config.BaseURL, path, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build URL: %w", err)
@@ -394,7 +365,6 @@ func (c *httpClient) Delete(path string, params map[string]interface{}) (*HTTPRe
 	return httpResp, nil
 }
 
-// Close 关闭客户端连接
 /**
  * Close HTTP client connection
  * @returns {error} Error if closing fails
@@ -408,9 +378,6 @@ func (c *httpClient) Delete(path string, params map[string]interface{}) (*HTTPRe
  * defer client.Close()
  */
 func (c *httpClient) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.client != nil {
 		c.client.CloseIdleConnections()
 	}
@@ -419,76 +386,6 @@ func (c *httpClient) Close() error {
 		c.transport.CloseIdleConnections()
 	}
 
-	c.connected = false
 	logger.Debugf("HTTP client connection closed")
-	return nil
-}
-
-// IsConnected 检查客户端是否已连接
-/**
- * Check if HTTP client is connected
- * @returns {bool} True if connected, false otherwise
- * @description
- * - Returns current connection status
- * - Does not attempt to establish connection
- * @example
- * if client.IsConnected() {
- *     fmt.Println("Client is connected")
- * }
- */
-func (c *httpClient) IsConnected() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.connected
-}
-
-/**
- * Ensure HTTP client is connected to Unix socket
- * @returns {error} Error if connection fails
- * @description
- * - Creates socket file path based on server name
- * - Establishes Unix socket connection
- * - Configures HTTP transport for Unix socket
- * - Sets up custom dialer for socket communication
- * - Updates connection state
- * @throws
- * - Socket path creation errors
- * - Connection establishment errors
- * - Transport configuration errors
- * @example
- * if err := client.ensureConnected(); err != nil {
- *     return nil, err
- * }
- */
-func (c *httpClient) ensureConnected() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.connected {
-		return nil
-	}
-
-	// 创建socket文件路径，使用与服务器相同的路径
-	socketDir := filepath.Join(env.CostrictDir, "run")
-	c.socketPath = GetSocketPath(c.config.ServerName+".sock", socketDir)
-
-	// 检查socket文件是否存在
-	if _, err := os.Stat(c.socketPath); os.IsNotExist(err) {
-		return fmt.Errorf("socket file not found at %s", c.socketPath)
-	}
-
-	// 创建自定义的dial函数
-	dial := func(network, addr string) (net.Conn, error) {
-		return net.Dial("unix", c.socketPath)
-	}
-
-	// 配置transport使用Unix socket
-	c.transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return dial(network, addr)
-	}
-
-	c.connected = true
-
-	logger.Debugf("Connected to HTTP server at %s", c.socketPath)
 	return nil
 }

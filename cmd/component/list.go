@@ -43,8 +43,8 @@ var listCmd = &cobra.Command{
  */
 func listInfo(ctx context.Context, args []string) {
 	fmt.Printf("------------------------------------------\n")
-	fmt.Printf("Base URL: %s\n", config.GetBaseURL())
-	fmt.Printf("Local: %s\n", env.CostrictDir)
+	fmt.Printf("云端地址: %s\n", config.GetBaseURL())
+	fmt.Printf("安装目录: %s\n", env.CostrictDir)
 	fmt.Printf("------------------------------------------\n")
 	if len(args) == 0 {
 		listAllComponents()

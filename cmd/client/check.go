@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"costrict-keeper/cmd/root"
+	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/models"
 	"costrict-keeper/internal/rpc"
 
@@ -163,6 +165,8 @@ func displayCheckResults(results models.CheckResponse) {
 
 	// Display timestamp
 	fmt.Printf("检查时间: %s\n", results.Timestamp.Format(time.RFC3339))
+	fmt.Printf("云端地址: %s\n", config.GetBaseURL())
+	fmt.Printf("安装目录: %s\n", env.CostrictDir)
 	fmt.Println()
 
 	// Display overall status

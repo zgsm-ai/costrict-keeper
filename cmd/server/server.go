@@ -106,15 +106,26 @@ func startServer() error {
 	go server.StartLogReporting()
 	go server.StartMidnightRooster()
 
-	// Create listeners for both TCP and Unix socket
-	listenerConfig := &ListenerConfig{
-		TcpAddr:    address,
-		SocketName: "costrict.sock",
-		SocketDir:  "",
+	listenAddrs := []ListenAddr{}
+	listenAddrs = append(listenAddrs, ListenAddr{
+		Network: "tcp",
+		Address: address,
+	})
+
+	if IsUnixSocketSupported() {
+		listenAddrs = append(listenAddrs, ListenAddr{
+			Network: "unix",
+			Address: filepath.Join(env.CostrictDir, "run", "costrict.sock"),
+		})
+	} else {
+		listenAddrs = append(listenAddrs, ListenAddr{
+			Network: "pipe",
+			Address: `\\.\pipe\costrict`,
+		})
 	}
 
-	listeners, socketPath, err := CreateListeners(listenerConfig)
-	if err != nil {
+	listeners, err := CreateListeners(listenAddrs)
+	if err != nil && len(listeners) == 0 {
 		logger.Fatal("Failed to create listeners:", err)
 	}
 
@@ -152,17 +163,6 @@ func startServer() error {
 	// Gracefully shutdown HTTP server
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Fatal("Server forced to shutdown:", err)
-	}
-
-	// Clean up Unix socket file if it exists
-	if socketPath != "" {
-		if _, err := os.Stat(socketPath); err == nil {
-			if err := os.Remove(socketPath); err != nil {
-				logger.Error("Failed to remove socket file:", err)
-			} else {
-				logger.Info("Socket file removed:", socketPath)
-			}
-		}
 	}
 
 	// Gracefully shutdown other services
