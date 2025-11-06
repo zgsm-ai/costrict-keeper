@@ -142,7 +142,7 @@ func GetBytes(urlStr string, params map[string]string) ([]byte, error) {
 		return []byte{}, fmt.Errorf("GetBytes: %v", err)
 	}
 	defer rsp.Body.Close()
-	if rsp.StatusCode != 200 {
+	if rsp.StatusCode < 200 || rsp.StatusCode >= 300 {
 		rspBody, _ := io.ReadAll(rsp.Body)
 		return rspBody, fmt.Errorf("GetBytes('%s?%s') code:%d, error:%s",
 			urlStr, req.URL.RawQuery, rsp.StatusCode, string(rspBody))
@@ -173,7 +173,7 @@ func GetFile(urlStr string, params map[string]string, savePath string) error {
 		return fmt.Errorf("GetFile('%s') failed: %v", urlStr, err)
 	}
 	defer rsp.Body.Close()
-	if rsp.StatusCode != 200 {
+	if rsp.StatusCode < 200 || rsp.StatusCode >= 300 {
 		rspBody, _ := io.ReadAll(rsp.Body)
 		return fmt.Errorf("GetFile('%s', '%s') code: %d, error:%s",
 			urlStr, req.URL.RawQuery, rsp.StatusCode, string(rspBody))
@@ -514,11 +514,6 @@ func (u *Upgrader) UpgradePackage(specVer *VersionNumber) (PackageVersion, bool,
  *	- 读取包描述文件失败
  *	- 删除包文件失败
  *	- 删除包描述文件失败
- *	@example
- *	err := RemovePackage("/home/xxx/.costrict", "my-package", nil)
- *	if err != nil {
- *		log.Fatal(err)
- *	}
  */
 func (u *Upgrader) RemovePackage(ver *VersionNumber) error {
 	if ver != nil {

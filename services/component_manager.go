@@ -92,6 +92,7 @@ func (ci *ComponentInstance) GetDetail() models.ComponentDetail {
 func (ci *ComponentInstance) fetchComponentInfo() error {
 	u := utils.NewUpgrader(ci.spec.Name, utils.UpgradeConfig{
 		BaseUrl: config.Cloud().UpgradeUrl,
+		BaseDir: env.CostrictDir,
 	})
 	ci.needUpgrade = false
 	ci.installed = false
@@ -129,6 +130,7 @@ func (ci *ComponentInstance) upgradeComponent() error {
 	// 解析版本号 - 由于新结构体中没有版本信息，使用默认版本
 	u := utils.NewUpgrader(ci.spec.Name, utils.UpgradeConfig{
 		BaseUrl: config.Cloud().UpgradeUrl,
+		BaseDir: env.CostrictDir,
 	})
 	pkg, upgraded, err := u.UpgradePackage(nil)
 	if err != nil {

@@ -169,7 +169,7 @@ func collectServiceMetrics(service models.ServiceSpecification) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("service %s returned non-200 status code: %d", service.Name, resp.StatusCode)
 	}
 

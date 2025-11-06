@@ -2,6 +2,7 @@ package component
 
 import (
 	"costrict-keeper/internal/config"
+	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/utils"
 	"fmt"
 
@@ -34,6 +35,7 @@ var upgradeCmd = &cobra.Command{
 func upgradeComponent(component string, version string) error {
 	u := utils.NewUpgrader(component, utils.UpgradeConfig{
 		BaseUrl: config.Cloud().UpgradeUrl,
+		BaseDir: env.CostrictDir,
 	})
 
 	var specVer *utils.VersionNumber
