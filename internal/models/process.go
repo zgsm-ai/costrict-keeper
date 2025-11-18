@@ -5,14 +5,14 @@ import "time"
 type RunStatus string
 
 const (
-	//	表示未运行或程序主动退出，正常停止，快速重试流程会立即重启
-	StatusExited RunStatus = "exited"
 	// 表示正在运行
 	StatusRunning RunStatus = "running"
-	// 表示被用户手动停止，自动监测流程不会尝试重启
-	StatusStopped RunStatus = "stopped"
+	//	表示未运行或程序主动退出，正常停止，快速重试流程会立即重启
+	StatusExited RunStatus = "exited"
 	// 表示出错停止，快速重试已经无法自动恢复，5分钟检测流程会尝试重启
 	StatusError RunStatus = "error"
+	// 表示被用户手动停止，5分钟检测流程不会尝试重启，用户通过启动命令可以手动启动
+	StatusStopped RunStatus = "stopped"
 	// 被禁用 和stopped的区别是: stopped表示临时不再启动，disabled表示长期被禁用
 	StatusDisabled RunStatus = "disabled"
 )

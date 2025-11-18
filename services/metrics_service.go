@@ -117,9 +117,9 @@ func collectMetricsFromComponents() error {
 		}
 
 		// Check if svc is healthy
-		isHealthy := service.IsHealthy()
+		healthy := service.GetHealthy()
 		healthValue := 0.0
-		if isHealthy {
+		if healthy == models.Healthy {
 			healthValue = 1.0
 		}
 		serviceHealthStatus.WithLabelValues(svc.Name, "unknown").Set(healthValue)
@@ -131,7 +131,7 @@ func collectMetricsFromComponents() error {
 			}
 		}
 
-		logger.Debugf("Collected metrics for service %s, healthy: %v", svc.Name, isHealthy)
+		logger.Debugf("Collected metrics for service %s, healthy: %v", svc.Name, healthy)
 	}
 
 	return nil

@@ -8,10 +8,10 @@ type PortPair struct {
 }
 
 type TunnelDetail struct {
-	Name        string     `json:"name"`        // service name
-	Status      RunStatus  `json:"status"`      // tunnel status(running/stopped/error/exited)
-	Pairs       []PortPair `json:"pairs"`       // Port pairs
-	CreatedTime time.Time  `json:"createdTime"` // creation time
-	Pid         int        `json:"pid"`         // process ID of the tunnel
-	Healthy     bool       `json:"healthy"`     // Works fine
+	Name        string        `json:"name"`        // service name
+	Status      RunStatus     `json:"status"`      // tunnel status(running/stopped/error/exited)
+	Pairs       []PortPair    `json:"pairs"`       // Port pairs
+	CreatedTime time.Time     `json:"createdTime"` // creation time
+	Pid         int           `json:"pid"`         // process ID of the tunnel
+	Healthy     HealthyStatus `json:"healthy"`     // Works fine
 }

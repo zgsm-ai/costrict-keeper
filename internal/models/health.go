@@ -20,3 +20,14 @@ type Metrics struct {
 	TotalComponents    int   `json:"totalComponents"`
 	UpgradedComponents int   `json:"upgradedComponents"`
 }
+
+type HealthyStatus string
+
+const (
+	Healthy     HealthyStatus = "healthy"
+	Unhealthy   HealthyStatus = "unhealthy"
+	Incomplete  HealthyStatus = "incomplete"
+	Unavailable HealthyStatus = "unavailable"
+)
+
+//healthy, unhealthy, incomplete,unavailable

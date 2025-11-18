@@ -105,7 +105,7 @@ func showAllServices(client rpc.HTTPClient) error {
 		row.Port = svc.Port
 		row.StartTime = svc.StartTime
 		row.Startup = svc.Spec.Startup
-		if svc.Healthy {
+		if svc.Healthy == models.Healthy {
 			row.Healthy = "Y"
 		} else {
 			row.Healthy = "N"
@@ -124,7 +124,7 @@ func showAllServices(client rpc.HTTPClient) error {
 			row.TunPid = fmt.Sprint(svc.Tunnel.Pid)
 			row.TunPort = fmt.Sprint(svc.Tunnel.Pairs[0].MappingPort)
 			if svc.Tunnel.Status == models.StatusRunning {
-				if svc.Tunnel.Healthy {
+				if svc.Tunnel.Healthy == models.Healthy {
 					row.TunStatus = "Opened"
 				} else {
 					row.TunStatus = "Unhealthy"

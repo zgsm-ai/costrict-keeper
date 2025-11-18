@@ -41,7 +41,6 @@ type ProcessInstance struct {
 	Command        string           //进程启动命令
 	Args           []string         //进程参数
 	WorkDir        string           //工作目录
-	Pid            int              //进程PID
 	Status         models.RunStatus //状态
 	RestartCount   int              //重启次数
 	StartTime      time.Time        //启动时间
@@ -75,40 +74,53 @@ func NewProcessInstance(title, procName, command string, args []string) *Process
 	}
 }
 
-func (proc *ProcessInstance) EnableWatcher(maxRestart int, onExited, onRestarted func(*ProcessInstance)) {
-	proc.watcher.enabled = true
-	proc.watcher.onExited = onExited
-	proc.watcher.onRestarted = onRestarted
-	proc.watcher.maxRestartCount = maxRestart
+func (pi *ProcessInstance) EnableWatcher(maxRestart int, onExited, onRestarted func(*ProcessInstance)) {
+	pi.mutex.Lock()
+	defer pi.mutex.Unlock()
+
+	pi.watcher.enabled = true
+	pi.watcher.onExited = onExited
+	pi.watcher.onRestarted = onRestarted
+	pi.watcher.maxRestartCount = maxRestart
 }
 
-func (proc *ProcessInstance) DisableWatcher() {
-	proc.watcher.enabled = false
-	proc.watcher.onExited = nil
-	proc.watcher.onRestarted = nil
-	proc.watcher.maxRestartCount = 0
+func (pi *ProcessInstance) DisableWatcher() {
+	pi.mutex.Lock()
+	defer pi.mutex.Unlock()
+
+	pi.watcher.enabled = false
+	pi.watcher.onExited = nil
+	pi.watcher.onRestarted = nil
+	pi.watcher.maxRestartCount = 0
 }
 
-func (proc *ProcessInstance) GetDetail() models.ProcessDetail {
+func (pi *ProcessInstance) Pid() int {
+	if pi.process == nil {
+		return 0
+	}
+	return pi.process.Pid
+}
+
+func (pi *ProcessInstance) GetDetail() models.ProcessDetail {
 	return models.ProcessDetail{
-		Title:           proc.Title,
-		ProcessName:     proc.ProcessName,
-		Command:         proc.Command,
-		Args:            proc.Args,
-		WorkDir:         proc.WorkDir,
-		MaxRestartCount: proc.watcher.maxRestartCount,
-		Status:          proc.Status,
-		Pid:             proc.Pid,
-		RestartCount:    proc.RestartCount,
-		StartTime:       proc.StartTime,
-		LastExitTime:    proc.LastExitTime,
-		LastExitReason:  proc.LastExitReason,
+		Title:           pi.Title,
+		ProcessName:     pi.ProcessName,
+		Command:         pi.Command,
+		Args:            pi.Args,
+		WorkDir:         pi.WorkDir,
+		MaxRestartCount: pi.watcher.maxRestartCount,
+		Status:          pi.Status,
+		Pid:             pi.Pid(),
+		RestartCount:    pi.RestartCount,
+		StartTime:       pi.StartTime,
+		LastExitTime:    pi.LastExitTime,
+		LastExitReason:  pi.LastExitReason,
 	}
 }
 
 /**
 * AttachProcess 根据PID附加到现有进程
-* @param {ProcessInstance} proc - 进程实例
+* @param {ProcessInstance} pi - 进程实例
 * @param {int} pid - 进程ID
 * @returns {error} 返回错误信息
 * @description
@@ -122,35 +134,34 @@ func (proc *ProcessInstance) GetDetail() models.ProcessDetail {
 * - 进程名称已存在
 * - 获取进程信息失败
  */
-func (proc *ProcessInstance) AttachProcess(pid int) error {
-	proc.mutex.Lock()
-	defer proc.mutex.Unlock()
+func (pi *ProcessInstance) AttachProcess(pid int) error {
+	pi.mutex.Lock()
+	defer pi.mutex.Unlock()
 
 	// 查找进程对象
-	processObj, err := utils.FindProcess(proc.ProcessName, pid)
+	processObj, err := utils.FindProcess(pi.ProcessName, pid)
 	if err != nil {
-		logger.Warnf("Failed to find process '%s' with PID %d: %v", proc.ProcessName, pid, err)
+		logger.Warnf("Failed to find process '%s' with PID %d: %v", pi.ProcessName, pid, err)
 		return err
 	}
 
 	// 更新进程实例
-	proc.Pid = pid
-	proc.Status = models.StatusRunning
-	proc.RestartCount = 0
-	proc.StartTime = time.Now()
-	proc.process = processObj // 保存进程对象
+	pi.Status = models.StatusRunning
+	pi.RestartCount = 0
+	pi.StartTime = time.Now()
+	pi.process = processObj // 保存进程对象
 
-	logger.Infof("Process '%s' attached (PID: %d, NAME: %s)", proc.Title, pid, proc.ProcessName)
+	logger.Infof("Process '%s' attached (PID: %d, NAME: %s)", pi.Title, pid, pi.ProcessName)
 	// 启动协程监控进程
-	if proc.watcher.enabled {
-		go proc.watchProcess()
+	if pi.watcher.enabled {
+		go pi.watchProcess()
 	}
 	return nil
 }
 
 /**
  * StartProcess 启动进程
- * @param {ProcessInstance} proc - 进程实例
+ * @param {ProcessInstance} pi - 进程实例
  * @returns {error} 返回错误信息
  * @description
  * - 启动指定进程
@@ -159,56 +170,54 @@ func (proc *ProcessInstance) AttachProcess(pid int) error {
  * - 如果进程配置了自动重启，会在进程退出时自动重启
  * - 更新进程状态
  */
-func (proc *ProcessInstance) StartProcess(ctx context.Context) error {
-	proc.mutex.Lock()
-	defer proc.mutex.Unlock()
+func (pi *ProcessInstance) StartProcess(ctx context.Context) error {
+	pi.mutex.Lock()
+	defer pi.mutex.Unlock()
 
-	if proc.Status == models.StatusRunning {
+	if pi.Status == models.StatusRunning {
 		return nil
 	}
-	fullCommand := proc.Command
-	for _, arg := range proc.Args {
+	fullCommand := pi.Command
+	for _, arg := range pi.Args {
 		fullCommand += " " + arg
 	}
 	logger.Infof("Executing command: %s", fullCommand)
 
 	// 创建命令
-	cmd := exec.CommandContext(ctx, proc.Command, proc.Args...)
+	cmd := exec.CommandContext(ctx, pi.Command, pi.Args...)
 
 	// 设置工作目录
-	if proc.WorkDir != "" {
-		cmd.Dir = proc.WorkDir
+	if pi.WorkDir != "" {
+		cmd.Dir = pi.WorkDir
 	}
 
-	if !proc.watcher.enabled {
+	if !pi.watcher.enabled {
 		// 设置进程属性，使子进程在父进程退出后继续运行
 		utils.SetNewPG(cmd)
 	}
 
 	if err := cmd.Start(); err != nil {
-		proc.Status = models.StatusError
-		proc.Pid = 0
-		proc.LastExitReason = fmt.Sprintf("start failed: %v", err)
-		logger.Errorf("Failed to start process '%s', error: %v", proc.Title, err)
+		pi.Status = models.StatusError
+		pi.LastExitReason = fmt.Sprintf("start failed: %v", err)
+		logger.Errorf("Failed to start process '%s', error: %v", pi.Title, err)
 		return err
 	}
 
-	proc.process = cmd.Process // 保存进程对象，用于统一Wait()
-	proc.Pid = cmd.Process.Pid
-	proc.Status = models.StatusRunning
-	proc.StartTime = time.Now()
+	pi.process = cmd.Process // 保存进程对象，用于统一Wait()
+	pi.Status = models.StatusRunning
+	pi.StartTime = time.Now()
 
-	logger.Infof("Process '%s' started (PID: %d)", proc.Title, proc.Pid)
+	logger.Infof("Process '%s' started (PID: %d)", pi.Title, pi.Pid())
 
-	if proc.watcher.enabled { // costrict.exe作为服务器运行时，启动协程监控子进程
-		go proc.watchProcess()
+	if pi.watcher.enabled { // costrict.exe作为服务器运行时，启动协程监控子进程
+		go pi.watchProcess()
 	}
 	return nil
 }
 
 /**
  * StopProcess 停止进程
- * @param {ProcessInstance} proc - 进程实例
+ * @param {ProcessInstance} pi - 进程实例
  * @returns {error} 返回错误信息
  * @description
  * - 停止指定进程
@@ -216,115 +225,121 @@ func (proc *ProcessInstance) StartProcess(ctx context.Context) error {
  * - 自动从管理器中移除进程
  * - 更新进程状态
  */
-func (proc *ProcessInstance) StopProcess() error {
-	proc.mutex.Lock()
-	defer proc.mutex.Unlock()
+func (pi *ProcessInstance) StopProcess() error {
+	pi.mutex.Lock()
+	defer pi.mutex.Unlock()
 
-	if proc.Status != models.StatusRunning {
+	if pi.Status != models.StatusRunning {
 		return nil
 	}
-	proc.Status = models.StatusStopped
-	proc.LastExitTime = time.Now()
-	proc.LastExitReason = "stopped by user"
+	pi.Status = models.StatusStopped
+	pi.LastExitTime = time.Now()
+	pi.LastExitReason = "stopped by user"
 
-	if proc.process != nil {
-		if err := proc.process.Kill(); err != nil {
-			logger.Errorf("Failed to kill process '%s' (PID: %d, NAME: %s)", proc.Title, proc.Pid, proc.ProcessName)
+	if pi.process != nil {
+		if err := pi.process.Kill(); err != nil {
+			logger.Errorf("Failed to kill process '%s' (PID: %d, NAME: %s)",
+				pi.Title, pi.Pid(), pi.ProcessName)
 			return err
 		}
-		proc.process.Wait()
-		proc.process = nil
+		pi.process.Wait()
+		pi.process = nil
 	}
 
-	logger.Infof("Process '%s' (PID: %d, NAME: %s) stopped", proc.Title, proc.Pid, proc.ProcessName)
+	logger.Infof("Process '%s' (PID: %d, NAME: %s) stopped",
+		pi.Title, pi.Pid(), pi.ProcessName)
 	return nil
 }
 
-func (proc *ProcessInstance) CheckProcess() {
-	if proc.Status != models.StatusRunning {
-		return
+func (pi *ProcessInstance) CheckProcess() models.HealthyStatus {
+	pi.mutex.Lock()
+	defer pi.mutex.Unlock()
+
+	if pi.Status != models.StatusRunning {
+		return models.Unavailable
 	}
-	if proc.process != nil {
-		running, err := utils.IsProcessRunning(proc.Pid)
-		if err != nil || !running {
-			logger.Warnf("Process '%s' (PID: %d, NAME: %s) isn't running", proc.Title, proc.Pid, proc.ProcessName)
-			proc.Pid = 0
-			proc.Status = models.StatusExited
-			proc.process = nil
-		}
+	if pi.process == nil {
+		return models.Unavailable
 	}
+	running, err := utils.IsProcessRunning(pi.Pid())
+	if err != nil || !running {
+		logger.Warnf("Process '%s' (PID: %d, NAME: %s) isn't running", pi.Title, pi.Pid(), pi.ProcessName)
+		pi.Status = models.StatusExited
+		pi.process = nil
+		return models.Unavailable
+	}
+	return models.Healthy
 }
 
 /**
  * watchProcess 监控进程状态的协程
- * @param {ProcessInstance} proc - 进程实例
+ * @param {ProcessInstance} pi - 进程实例
  * @description
  * - 使用协程监控进程状态
  * - 统一使用process.Wait()等待进程退出
  * - 如果进程配置了自动重启，在进程退出时自动重启
  * - 更新进程状态并记录退出原因
  */
-func (proc *ProcessInstance) watchProcess() {
-	_, err := proc.process.Wait()
+func (pi *ProcessInstance) watchProcess() {
+	_, err := pi.process.Wait()
 
-	proc.mutex.Lock()
-	defer proc.mutex.Unlock()
+	pi.mutex.Lock()
+	defer pi.mutex.Unlock()
 
-	if proc.Status == models.StatusStopped {
-		logger.Infof("Process '%s' (PID: %d) stopped by user", proc.Title, proc.Pid)
+	if pi.Status == models.StatusStopped {
+		logger.Infof("Process '%s' (PID: %d) stopped by user", pi.Title, pi.Pid())
 		return
 	}
-	proc.LastExitTime = time.Now()
+	pi.LastExitTime = time.Now()
 	if err != nil {
-		logger.Errorf("Process '%s' (PID: %d) exited with error: %v", proc.Title, proc.Pid, err)
-		proc.LastExitReason = fmt.Sprintf("exited with error: %v", err)
-		proc.Status = models.StatusError
+		logger.Errorf("Process '%s' (PID: %d) exited with error: %v", pi.Title, pi.Pid(), err)
+		pi.LastExitReason = fmt.Sprintf("exited with error: %v", err)
+		pi.Status = models.StatusError
 	} else {
-		logger.Infof("Process '%s' (PID: %d) exited normally", proc.Title, proc.Pid)
-		proc.LastExitReason = "exited normally"
-		proc.Status = models.StatusExited
+		logger.Infof("Process '%s' (PID: %d) exited normally", pi.Title, pi.Pid())
+		pi.LastExitReason = "exited normally"
+		pi.Status = models.StatusExited
 	}
-	proc.process = nil
-	proc.Pid = 0
-	if proc.watcher.onExited != nil {
-		proc.watcher.onExited(proc)
+	pi.process = nil
+	if pi.watcher.onExited != nil {
+		pi.watcher.onExited(pi)
 	} else {
-		proc.autoRestart()
+		pi.autoRestart()
 	}
 }
 
 /**
  * autoRestart 自动重启进程
- * @param {ProcessInstance} proc - 进程实例
+ * @param {ProcessInstance} pi - 进程实例
  * @description
  * - 检查重启次数是否超过限制
  * - 增加重启计数
  * - 延迟重启进程
  * - 对于附加的进程，无法重启，只记录日志
  */
-func (proc *ProcessInstance) autoRestart() {
+func (pi *ProcessInstance) autoRestart() {
 	// 检查是否需要自动重启：非服务器模式不自动重启，重启次数是否超过限制也不自动重启
-	if !proc.watcher.enabled || proc.watcher.maxRestartCount == 0 {
+	if !pi.watcher.enabled || pi.watcher.maxRestartCount == 0 {
 		return
 	}
-	if proc.RestartCount >= proc.watcher.maxRestartCount {
+	if pi.RestartCount >= pi.watcher.maxRestartCount {
 		logger.Warnf("Process '%s' has reached maximum restart count (%d), not restarting",
-			proc.Title, proc.watcher.maxRestartCount)
+			pi.Title, pi.watcher.maxRestartCount)
 		return
 	}
 
 	logger.Infof("Process '%s' will restart in %v (restart: %d/%d)",
-		proc.Title, time.Second, proc.RestartCount, proc.watcher.maxRestartCount)
+		pi.Title, time.Second, pi.RestartCount, pi.watcher.maxRestartCount)
 	// 延迟重启，避免死锁
 	time.AfterFunc(time.Second, func() {
-		if proc.Status == models.StatusStopped {
-			logger.Infof("Process '%s' stopped by user, needn't restart", proc.Title)
+		if pi.Status == models.StatusStopped {
+			logger.Infof("Process '%s' stopped by user, needn't restart", pi.Title)
 			return
 		}
-		proc.RestartCount++
-		proc.StartProcess(context.Background())
-		if proc.watcher.onRestarted != nil {
-			proc.watcher.onRestarted(proc)
+		pi.RestartCount++
+		pi.StartProcess(context.Background())
+		if pi.watcher.onRestarted != nil {
+			pi.watcher.onRestarted(pi)
 		}
 	})
 }

@@ -2,16 +2,22 @@ package utils
 
 import (
 	"fmt"
+	"net"
+	"time"
 )
 
-// CheckPortConnectable checks if a port is connectable on localhost
+// checks if a port is connectable on localhost
 func CheckPortConnectable(port int) bool {
-	return checkPortConnectable(port)
-}
-
-// CheckPortListenable checks if a port is listenable
-func CheckPortListenable(port int) bool {
-	return checkPortListenable(port)
+	timeout := time.Second
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("localhost", fmt.Sprintf("%d", port)), timeout)
+	if err != nil {
+		return false
+	}
+	if conn != nil {
+		conn.Close()
+		return true
+	}
+	return false
 }
 
 func isPortAllocated(port int) bool {
@@ -23,7 +29,13 @@ func isPortAllocated(port int) bool {
 }
 
 func isPortAvailable(port int) bool {
-	return !isPortAllocated(port) && checkPortListenable(port)
+	if isPortAllocated(port) {
+		return false
+	}
+	if CheckPortConnectable(port) {
+		return false
+	}
+	return CheckPortListenable(port)
 }
 
 var minPort int = 9000

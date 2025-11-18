@@ -6,7 +6,7 @@ type ServiceDetail struct {
 	Port      int                  `json:"port"`
 	Status    RunStatus            `json:"status"`
 	StartTime string               `json:"startTime"`
-	Healthy   bool                 `json:"healthy"`
+	Healthy   HealthyStatus        `json:"healthy"`
 	Spec      ServiceSpecification `json:"spec"`
 	Process   ProcessDetail        `json:"process,omitempty"`
 	Tunnel    *TunnelDetail        `json:"tunnel,omitempty"`

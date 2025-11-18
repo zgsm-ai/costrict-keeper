@@ -71,7 +71,7 @@ func displayServices(services []models.ServiceDetail) {
 	fmt.Printf("=== 服务检查结果 (%d 项) ===\n", len(services))
 	for _, svc := range services {
 		statusIcon := "✅"
-		if !svc.Healthy || svc.Status != "running" {
+		if svc.Healthy != models.Healthy || svc.Status != "running" {
 			statusIcon = "❌"
 		}
 
@@ -86,7 +86,7 @@ func displayServices(services []models.ServiceDetail) {
 			fmt.Printf(" 重启次数: %d", svc.Process.RestartCount)
 		}
 		fmt.Printf(" 状态: %s", svc.Status)
-		if svc.Healthy {
+		if svc.Healthy == models.Healthy {
 			fmt.Printf(" 健康")
 		} else {
 			fmt.Printf(" 不健康")
@@ -102,7 +102,7 @@ func displayTunnel(tunnel *models.TunnelDetail) {
 		return
 	}
 	statusIcon := "✅"
-	if !tunnel.Healthy {
+	if tunnel.Healthy != models.Healthy {
 		statusIcon = "❌"
 	}
 	fmt.Printf("  %s 隧道: %s", statusIcon, tunnel.Name)
@@ -114,7 +114,7 @@ func displayTunnel(tunnel *models.TunnelDetail) {
 		fmt.Printf(" (本地端口: %d -> 映射端口: %d)", tun.LocalPort, tun.MappingPort)
 	}
 	fmt.Printf(" 状态: %s", tunnel.Status)
-	if tunnel.Healthy {
+	if tunnel.Healthy == models.Healthy {
 		fmt.Printf(" 健康")
 	} else {
 		fmt.Printf(" 不健康")

@@ -7,26 +7,11 @@ import (
 	"fmt"
 	"net"
 	"syscall"
-	"time"
 )
 
-// checkPortConnectable checks if a port is connectable on localhost (POSIX implementation)
-func checkPortConnectable(port int) bool {
-	timeout := time.Second
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort("localhost", fmt.Sprintf("%d", port)), timeout)
-	if err != nil {
-		return false
-	}
-	if conn != nil {
-		conn.Close()
-		return true
-	}
-	return false
-}
-
-// checkPortListenable checks if a port is listenable (POSIX implementation)
-func checkPortListenable(port int) bool {
-	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", port))
+// checks if a port is listenable on localhost (POSIX implementation)
+func CheckPortListenable(port int) bool {
+	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return false
 	}

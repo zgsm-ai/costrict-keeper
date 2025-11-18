@@ -332,7 +332,7 @@ func (s *Server) Check() models.CheckResponse {
 	}
 
 	// 检查服务
-	s.service.CheckServices()
+	// s.service.CheckServices()
 	var serviceResults []models.ServiceDetail
 	for _, svc := range s.service.GetInstances(false) {
 		serviceResult := svc.GetDetail()
@@ -356,14 +356,14 @@ func (s *Server) Check() models.CheckResponse {
 	// 统计服务检查结果
 	for _, svc := range serviceResults {
 		response.TotalChecks++
-		if svc.Healthy && svc.Status == "running" {
+		if svc.Healthy == models.Healthy && svc.Status == "running" {
 			response.PassedChecks++
 		} else {
 			response.FailedChecks++
 		}
 		if svc.Tunnel != nil {
 			response.TotalChecks++
-			if svc.Tunnel.Healthy {
+			if svc.Tunnel.Healthy == models.Healthy {
 				response.PassedChecks++
 			} else {
 				response.FailedChecks++

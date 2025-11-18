@@ -62,7 +62,7 @@ type TunnelInstance struct {
 	pairs       []models.PortPair // Port pairs
 	status      models.RunStatus  // tunnel status(running/stopped/error/exited)
 	createdTime time.Time         // creation time
-	proc        *ProcessInstance  // Process cotun.exe
+	pi          *ProcessInstance  // Process cotun.exe
 }
 
 /**
@@ -116,8 +116,8 @@ func (ti *TunnelInstance) toJSON() (string, error) {
 		CreatedTime: ti.createdTime,
 		Pairs:       ti.pairs,
 	}
-	if ti.proc != nil {
-		cache.Pid = ti.proc.Pid
+	if ti.pi != nil && ti.pi.process != nil {
+		cache.Pid = ti.pi.Pid()
 	}
 	data, err := json.MarshalIndent(&cache, "", "  ")
 	if err != nil {
@@ -223,11 +223,11 @@ func (tun *TunnelInstance) GetDetail() models.TunnelDetail {
 		CreatedTime: tun.createdTime,
 		Pairs:       tun.pairs,
 		Pid:         0,
-		Healthy:     false,
+		Healthy:     models.Healthy,
 	}
-	if tun.proc != nil {
-		detail.Pid = tun.proc.Pid
-		detail.Healthy = tun.IsHealthy()
+	if tun.pi != nil {
+		detail.Pid = tun.pi.Pid()
+		detail.Healthy = tun.GetHealthy()
 	}
 	return detail
 }
@@ -252,7 +252,7 @@ func (tun *TunnelInstance) GetDetail() models.TunnelDetail {
  */
 func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
 	if tun.status == models.StatusRunning {
-		logger.Infof("Tunnel (%s) has been started, PID: %d", tun.getTitle(), tun.proc.Pid)
+		logger.Infof("Tunnel (%s) has been started, PID: %d", tun.getTitle(), tun.pi.Pid())
 		return nil
 	}
 	var err error
@@ -267,14 +267,14 @@ func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
 		return err
 	}
 
-	tun.proc, err = tun.createProcessInstance()
+	tun.pi, err = tun.createProcessInstance()
 	if err != nil {
 		logger.Errorf("Failed to get command info: %v", err)
 		return err
 	}
 	if env.Daemon {
-		tun.proc.EnableWatcher(7, nil, func(pi *ProcessInstance) {
-			if pi.Pid == 0 {
+		tun.pi.EnableWatcher(7, nil, func(pi *ProcessInstance) {
+			if pi.process == nil {
 				tun.status = models.StatusError
 			} else {
 				tun.status = models.StatusRunning
@@ -282,14 +282,14 @@ func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
 			tun.saveTunnel()
 		})
 	}
-	if err := tun.proc.StartProcess(ctx); err != nil {
+	if err := tun.pi.StartProcess(ctx); err != nil {
 		return err
 	}
 	tun.status = models.StatusRunning
-	tun.createdTime = tun.proc.StartTime
+	tun.createdTime = tun.pi.StartTime
 
 	logger.Infof("Successfully created tunnel (%s), process: %s (PID: %d)",
-		tun.getTitle(), tun.proc.ProcessName, tun.proc.Pid)
+		tun.getTitle(), tun.pi.ProcessName, tun.pi.Pid())
 	return nil
 }
 
@@ -307,66 +307,47 @@ func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
  * tunnelInstance.closeTunnel()
  */
 func (tun *TunnelInstance) CloseTunnel() error {
-	if tun.proc == nil {
+	if tun.pi == nil {
 		return nil
 	}
-	logger.Infof("Tunnel '%s' (PID: %d) will be closed", tun.getTitle(), tun.proc.Pid)
+	logger.Infof("Tunnel '%s' (PID: %d) will be closed", tun.getTitle(), tun.pi.Pid())
 	tun.status = models.StatusStopped
-	tun.proc.StopProcess()
+	tun.pi.StopProcess()
 	utils.FreePort(tun.pairs[0].LocalPort)
-	tun.cleanTunnel()
+	tun.removeTunnelFile()
 	return nil
 }
 
-/**
- * Restart tunnel with new port mapping
- * @param {*TunnelInstance} tunnel - Tunnel instance to restart
- * @returns {error} Returns error if restart operation fails, nil on success
- * @description
- * - Stops the current tunnel process if running
- * - Updates tunnel status to stopped
- * - Starts the tunnel again with new configuration
- * - Handles errors during stop and start operations
- * @throws
- * - Tunnel stop errors
- * - Tunnel start errors
- */
-func (tun *TunnelInstance) ReopenTunnel(ctx context.Context) error {
-	if tun.status == models.StatusRunning {
-		tun.CloseTunnel()
-	}
-	return tun.OpenTunnel(ctx)
-}
-
-func (tun *TunnelInstance) CheckTunnel() {
+func (tun *TunnelInstance) CheckTunnel() models.HealthyStatus {
 	if tun.status != models.StatusRunning {
-		return
+		return models.Unavailable
 	}
-	if tun.proc == nil {
-		return
+	if tun.pi == nil {
+		return models.Unavailable
 	}
-	tun.proc.CheckProcess()
-	if tun.proc.Pid == 0 {
+	if status := tun.pi.CheckProcess(); status != models.Healthy {
 		tun.status = models.StatusExited
-		tun.cleanTunnel()
+		tun.removeTunnelFile()
+		return status
 	}
+	return models.Healthy
 }
 
-func (tun *TunnelInstance) IsHealthy() bool {
+func (tun *TunnelInstance) GetHealthy() models.HealthyStatus {
 	if tun.status != models.StatusRunning {
-		return false
+		return models.Unavailable
 	}
-	if tun.proc == nil {
-		return false
+	if tun.pi == nil {
+		return models.Unavailable
 	}
-	if tun.proc.Pid == 0 {
-		return false
+	if tun.pi.process == nil {
+		return models.Unavailable
 	}
-	running, err := utils.IsProcessRunning(tun.proc.Pid)
+	running, err := utils.IsProcessRunning(tun.pi.Pid())
 	if err != nil || !running {
-		return false
+		return models.Unavailable
 	}
-	return true
+	return models.Healthy
 }
 
 /**
@@ -446,7 +427,7 @@ func (tun *TunnelInstance) saveTunnel() error {
 }
 
 /**
- * Clean tunnel cache file
+ * Remove tunnel cache file
  * @param {*TunnelInstance} tun - Tunnel instance to clean
  * @returns {error} Returns error if file deletion fails, nil on success
  * @description
@@ -459,7 +440,7 @@ func (tun *TunnelInstance) saveTunnel() error {
  * @throws
  * - File deletion errors
  */
-func (tun *TunnelInstance) cleanTunnel() error {
+func (tun *TunnelInstance) removeTunnelFile() error {
 	filePath := tun.getCacheFname()
 	if _, err := os.Stat(filePath); err == nil {
 		if err := os.Remove(filePath); err != nil {

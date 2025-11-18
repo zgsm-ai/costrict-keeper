@@ -28,15 +28,15 @@ const (
  * @property {models.ServiceSpecification} config - Service configuration
  */
 type ServiceInstance struct {
-	spec        models.ServiceSpecification
-	component   *ComponentInstance
-	proc        *ProcessInstance
-	tun         *TunnelInstance
-	status      models.RunStatus
-	startTime   string
-	port        int
-	failedCount int  //检测失败，连续三次检测失败，需要重启服务
-	child       bool //被本进程直接管理控制的子服务
+	spec        models.ServiceSpecification //服务的规格描述，由服务端下发
+	component   *ComponentInstance          //运行服务的组件，实现服务的具体逻辑
+	proc        *ProcessInstance            //运行该服务的进程
+	tun         *TunnelInstance             //支持该服务远程访问的隧道
+	status      models.RunStatus            //服务状态
+	startTime   string                      //服务启动时间
+	port        int                         //服务侦听的端口
+	failedCount int                         //健康检测失败，连续三次健康检测失败，需要重启服务
+	child       bool                        //被本进程直接管理控制的子服务
 }
 
 type ServiceCache struct {
@@ -148,7 +148,7 @@ func (svc *ServiceInstance) GetDetail() models.ServiceDetail {
 	if !svc.child {
 		detail.Pid = os.Getpid()
 	} else {
-		detail.Pid = svc.proc.Pid
+		detail.Pid = svc.proc.Pid()
 	}
 	detail.Process = svc.proc.GetDetail()
 	if svc.component != nil {
@@ -157,7 +157,7 @@ func (svc *ServiceInstance) GetDetail() models.ServiceDetail {
 	} else {
 		detail.Component = nil
 	}
-	detail.Healthy = svc.IsHealthy()
+	detail.Healthy = svc.GetHealthy()
 	return *detail
 }
 
@@ -180,26 +180,27 @@ func (svc *ServiceInstance) GetTunnel() *TunnelInstance {
 /**
  * Check if service is healthy and running
  * @param {string} name - Name of the service to check
- * @returns {bool} Returns true if service is healthy, false otherwise
+ * @returns {models.HealthyStatus} Returns true if service is healthy, false otherwise
  * @description
  * - Checks if service instance exists in running services map
  * - Verifies process state is not exited
  * - Checks if service port is available
  * - Returns false if service is not found or unhealthy
  */
-func (svc *ServiceInstance) IsHealthy() bool {
+func (svc *ServiceInstance) GetHealthy() models.HealthyStatus {
 	if svc.status != models.StatusRunning {
-		return false
+		return models.Unavailable
 	}
-	// 如果端口不可用（已被占用），说明服务正在监听
-	if svc.port > 0 {
-		return utils.CheckPortConnectable(svc.port)
-	}
-	running, err := utils.IsProcessRunning(svc.proc.Pid)
+	running, err := utils.IsProcessRunning(svc.proc.Pid())
 	if err != nil || !running {
-		return false
+		return models.Unavailable
 	}
-	return true
+	if svc.port > 0 {
+		if !utils.CheckPortConnectable(svc.port) {
+			return models.Unhealthy
+		}
+	}
+	return models.Healthy
 }
 
 /**
@@ -263,7 +264,7 @@ func (svc *ServiceInstance) saveService() {
 	cache.StartTime = svc.startTime
 	cache.Status = svc.status
 	if svc.child {
-		cache.Pid = svc.proc.Pid
+		cache.Pid = svc.proc.Pid()
 	} else {
 		cache.Pid = os.Getpid()
 	}
@@ -318,7 +319,7 @@ func (svc *ServiceInstance) StartService(ctx context.Context) error {
 	}
 	if env.Daemon && svc.spec.Startup == "always" {
 		svc.proc.EnableWatcher(7, nil, func(pi *ProcessInstance) {
-			if pi.Pid == 0 {
+			if pi.process == nil {
 				svc.status = models.StatusError
 			} else {
 				svc.status = models.StatusRunning
@@ -348,31 +349,32 @@ func (svc *ServiceInstance) StopService() {
 }
 
 func (svc *ServiceInstance) RecoverService() {
-	if svc.status == models.StatusStopped {
+	if svc.status == models.StatusStopped || svc.status == models.StatusDisabled {
 		return
 	}
-	svc.CheckService()
-	if svc.failedCount > 2 {
-		logger.Warnf("Service '%s' failed detection three times, automatically restart", svc.spec.Name)
+	//只剩下三种状态 StatusExited, StatusRunning, StatusError
+	status := svc.CheckService()
+	switch status {
+	case models.Incomplete:
+		svc.ReopenTunnel(context.Background())
+	case models.Unavailable:
+		if svc.failedCount > 2 {
+			logger.Warnf("Service '%s' failed detection three times, automatically restart", svc.spec.Name)
+		} else if svc.status == models.StatusError || svc.status == models.StatusExited {
+			logger.Warnf("Service '%s' is currently unavailable, automatically restart", svc.spec.Name)
+		}
 		svc.failedCount = 0
 		svc.StopService()
 		svc.StartService(context.Background())
 	}
-	if !svc.IsHealthy() {
-		// 服务进程如果挂了，要把隧道也关了，避免端口变化隧道无法使用
-		if svc.tun != nil {
-			svc.tun.CloseTunnel()
-		}
-		svc.StartService(context.Background())
-	}
-	if svc.tun == nil || !svc.tun.IsHealthy() {
-		svc.OpenTunnel(context.Background())
-	}
 }
 
-func (svc *ServiceInstance) CheckService() error {
-	if svc.status == models.StatusStopped {
-		return nil
+/**
+ *	The test results are classified into three levels: normal, unhealthy, and unavailable.
+ */
+func (svc *ServiceInstance) CheckService() models.HealthyStatus {
+	if svc.status != models.StatusRunning {
+		return models.Unavailable
 	}
 	if svc.port > 0 {
 		if !utils.CheckPortConnectable(svc.port) {
@@ -381,12 +383,22 @@ func (svc *ServiceInstance) CheckService() error {
 		} else {
 			svc.failedCount = 0
 		}
+		if svc.failedCount >= 3 {
+			return models.Unavailable
+		}
 	}
-	svc.proc.CheckProcess()
+	if status := svc.proc.CheckProcess(); status != models.Healthy {
+		return models.Unavailable
+	}
 	if svc.tun != nil {
-		svc.tun.CheckTunnel()
+		if status := svc.tun.CheckTunnel(); status != models.Healthy {
+			return models.Incomplete
+		}
 	}
-	return nil
+	if svc.failedCount > 0 {
+		return models.Unhealthy
+	}
+	return models.Healthy
 }
 
 func createProcessInstance(spec *models.ServiceSpecification, port int) *ProcessInstance {
