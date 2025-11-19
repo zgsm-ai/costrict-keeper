@@ -37,12 +37,11 @@ var cleanCmd = &cobra.Command{
  * - Cache cleanup errors
  */
 func cleanAll() error {
-
 	// 1. 杀掉还在运行的costrict程序
 	fmt.Println("Starting cleanup process...")
 	utils.KillSpecifiedProcess(services.COSTRICT_NAME)
 	// 2. 杀死所有组件/服务的进程
-	if err := config.LoadLocalSpec(); err == nil {
+	if err := config.LoadSpec(); err == nil {
 		spec := config.Spec()
 		targetProcesses := []string{}
 		for _, svc := range spec.Components {

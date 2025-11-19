@@ -6,7 +6,6 @@ import (
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/utils"
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"log"
 	"os"
@@ -168,24 +167,6 @@ func (cfg *AppConfig) correctConfig() {
 	}
 }
 
-func FetchRemoteConfig() error {
-	u := utils.NewUpgrader("costrict-config", utils.UpgradeConfig{
-		BaseUrl: fmt.Sprintf("%s/costrict", GetBaseURL()),
-		BaseDir: env.CostrictDir,
-	})
-	pkg, upgraded, err := u.UpgradePackage(nil)
-	if err != nil {
-		logger.Errorf("Fetch config failed: %v", err)
-		return err
-	}
-	if !upgraded {
-		logger.Infof("The '%s' version is up to date\n", pkg.PackageName)
-	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", pkg.PackageName, pkg.VersionId.String())
-	}
-	return nil
-}
-
 func expandUrl(baseUrl string, pattern string) (string, error) {
 	tpl, err := template.New("url").Parse(pattern)
 	if err != nil {
@@ -255,7 +236,7 @@ func LoadConfig(ignoreError bool) error {
  * @returns {error} Returns error if loading fails, nil on success
  */
 func ReloadConfig(ignoreError bool) error {
-	if err := FetchRemoteConfig(); err != nil {
+	if err := fetchRemoteConfig("costrict-config"); err != nil {
 		if !ignoreError {
 			return err
 		}

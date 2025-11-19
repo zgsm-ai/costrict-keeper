@@ -25,7 +25,7 @@ If component name is specified, only show detailed information of that component
 When --server flag is set, display all available packages on the server with their version information.`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := config.LoadLocalSpec(); err != nil {
+		if err := config.LoadSpec(); err != nil {
 			fmt.Printf("Costrict is uninitialized")
 			return
 		}

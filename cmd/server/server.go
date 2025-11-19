@@ -65,7 +65,8 @@ func startServer() error {
 	if err := ensureSingleInstance(); err != nil {
 		return fmt.Errorf("failed to ensure single instance: %w", err)
 	}
-	config.ReloadConfig(true)
+	config.UpdateRemoteConfigs()
+	config.LoadConfig(true)
 	config.LoadSpec()
 	// Determine listening address: prioritize command line arguments, then use configuration file
 	address := config.App().Listen

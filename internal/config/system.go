@@ -4,7 +4,6 @@ import (
 	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
-	"costrict-keeper/internal/utils"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,46 +11,7 @@ import (
 	"path/filepath"
 )
 
-/**
- * Load remote services configuration from URL
- * @param {string} url - URL of the remote configuration file
- * @returns {(*RemoteServicesConfig, error)} Returns configuration struct and error if any
- * @description
- * - Makes HTTP GET request to specified URL
- * - Validates HTTP response status code
- * - Reads response body and parses JSON
- * - Returns unmarshaled configuration structure
- * @throws
- * - HTTP request errors
- * - HTTP status code errors
- * - Response body reading errors
- * - JSON unmarshaling errors
- * @example
- * config, err := FetchRemoteSystemSpecification()
- * if err != nil {
- *     logger.Fatal(err)
- * }
- */
-func FetchRemoteSystemSpecification() error {
-	u := utils.NewUpgrader("system", utils.UpgradeConfig{
-		BaseUrl: fmt.Sprintf("%s/costrict", GetBaseURL()),
-		BaseDir: env.CostrictDir,
-	})
-
-	pkg, upgraded, err := u.UpgradePackage(nil)
-	if err != nil {
-		logger.Errorf("fetch config failed: %v", err)
-		return err
-	}
-	if !upgraded {
-		logger.Infof("The '%s' version is up to date\n", pkg.PackageName)
-	} else {
-		logger.Infof("The '%s' is upgraded to version %s\n", pkg.PackageName, pkg.VersionId.String())
-	}
-	return nil
-}
-
-func LoadLocalSystemSpecification() (*models.SystemSpecification, error) {
+func loadLocalSpec() (*models.SystemSpecification, error) {
 	fname := filepath.Join(env.CostrictDir, "share", "system-spec.json")
 
 	bytes, err := os.ReadFile(fname)
@@ -67,29 +27,12 @@ func LoadLocalSystemSpecification() (*models.SystemSpecification, error) {
 
 var system *models.SystemSpecification
 
-func LoadLocalSpec() error {
-	if system != nil {
-		return nil
-	}
-	var err error
-	system, err = LoadLocalSystemSpecification()
-	if err != nil {
-		logger.Errorf("Load failed: %v", err)
-		return err
-	}
-	return nil
-}
-
 func LoadSpec() error {
 	if system != nil {
 		return nil
 	}
-	if err := FetchRemoteSystemSpecification(); err != nil {
-		logger.Errorf("Fetch failed: %v", err)
-		return err
-	}
 	var err error
-	system, err = LoadLocalSystemSpecification()
+	system, err = loadLocalSpec()
 	if err != nil {
 		logger.Errorf("Load failed: %v", err)
 		return err
@@ -99,7 +42,7 @@ func LoadSpec() error {
 
 func Spec() *models.SystemSpecification {
 	if system == nil {
-		log.Fatalln("Must run config.LoadSpec/config.LoadLocalSpec first")
+		log.Fatalln("Must run config.LoadSpec first")
 		return nil
 	}
 	return system

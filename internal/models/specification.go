@@ -41,9 +41,6 @@ type ManagerSpecification struct {
 /**
  * System definition (system-spec.json)
  * @property {string} configuration - Configuration format version
- * @property {string} platform - Target platform
- * @property {string} arch - Target architecture
- * @property {string} version - System version
  * @property {ManagerSpecification} manager - Service manager configuration
  * @property {[]ComponentSpecification} components - Component configurations
  * @property {[]ServiceSpecification} services - Service configurations
@@ -51,9 +48,6 @@ type ManagerSpecification struct {
  */
 type SystemSpecification struct {
 	Configuration  string                   `json:"configuration"`
-	Platform       string                   `json:"platform"`
-	Arch           string                   `json:"arch"`
-	Version        string                   `json:"version"`
 	Manager        ManagerSpecification     `json:"manager"`
 	Components     []ComponentSpecification `json:"components"`
 	Services       []ServiceSpecification   `json:"services"`
