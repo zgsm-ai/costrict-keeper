@@ -1,4 +1,4 @@
-package services
+package tun
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
+	"costrict-keeper/internal/proc"
 	"costrict-keeper/internal/utils"
 )
 
@@ -58,11 +59,11 @@ type TunnelCache struct {
 }
 
 type TunnelInstance struct {
-	name        string            // service name
-	pairs       []models.PortPair // Port pairs
-	status      models.RunStatus  // tunnel status(running/stopped/error/exited)
-	createdTime time.Time         // creation time
-	pi          *ProcessInstance  // Process cotun.exe
+	name        string                // service name
+	pairs       []models.PortPair     // Port pairs
+	status      models.RunStatus      // tunnel status(running/stopped/error/exited)
+	createdTime time.Time             // creation time
+	pi          *proc.ProcessInstance // Process cotun.exe
 }
 
 /**
@@ -116,7 +117,7 @@ func (ti *TunnelInstance) toJSON() (string, error) {
 		CreatedTime: ti.createdTime,
 		Pairs:       ti.pairs,
 	}
-	if ti.pi != nil && ti.pi.process != nil {
+	if ti.pi != nil {
 		cache.Pid = ti.pi.Pid()
 	}
 	data, err := json.MarshalIndent(&cache, "", "  ")
@@ -273,11 +274,12 @@ func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
 		return err
 	}
 	if env.Daemon {
-		tun.pi.EnableWatcher(7, nil, func(pi *ProcessInstance) {
-			if pi.process == nil {
+		tun.pi.SetWatcher(7, func(pi *proc.ProcessInstance) {
+			switch pi.Status {
+			case models.StatusExited, models.StatusError:
 				tun.status = models.StatusError
-			} else {
-				tun.status = models.StatusRunning
+			default: //models.StatusStopped, models.StatusRunning
+				tun.status = pi.Status
 			}
 			tun.saveTunnel()
 		})
@@ -340,10 +342,11 @@ func (tun *TunnelInstance) GetHealthy() models.HealthyStatus {
 	if tun.pi == nil {
 		return models.Unavailable
 	}
-	if tun.pi.process == nil {
+	pid := tun.pi.Pid()
+	if pid == 0 {
 		return models.Unavailable
 	}
-	running, err := utils.IsProcessRunning(tun.pi.Pid())
+	running, err := utils.IsProcessRunning(pid)
 	if err != nil || !running {
 		return models.Unavailable
 	}
@@ -365,7 +368,7 @@ func (tun *TunnelInstance) GetHealthy() models.HealthyStatus {
  * @throws
  * - Command line generation errors
  */
-func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
+func (tun *TunnelInstance) createProcessInstance() (*proc.ProcessInstance, error) {
 	cfg := config.App()
 	name := cfg.Tunnel.ProcessName
 	if runtime.GOOS == "windows" {
@@ -384,7 +387,7 @@ func (tun *TunnelInstance) createProcessInstance() (*ProcessInstance, error) {
 		logger.Errorf("Tunnel startup settings are incorrect, setting: %+v", cfg.Tunnel)
 		return nil, err
 	}
-	return NewProcessInstance("tunnel "+tun.name, name, command, cmdArgs), nil
+	return proc.NewProcessInstance("tunnel "+tun.name, name, command, cmdArgs), nil
 }
 
 /**

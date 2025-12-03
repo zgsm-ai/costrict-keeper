@@ -178,19 +178,19 @@ func (ci *ComponentInstance) removeComponent() error {
 }
 
 func (cm *ComponentManager) Init() error {
-	for _, cpn := range config.Spec().Components {
-		ci := ComponentInstance{
-			spec: cpn,
-		}
-		ci.fetchComponentInfo()
-		componentManager.components[cpn.Name] = &ci
-	}
 	for _, cpn := range config.Spec().Configurations {
 		ci := ComponentInstance{
 			spec: cpn,
 		}
 		ci.fetchComponentInfo()
 		componentManager.configs[cpn.Name] = &ci
+	}
+	for _, cpn := range config.Spec().Components {
+		ci := ComponentInstance{
+			spec: cpn,
+		}
+		ci.fetchComponentInfo()
+		componentManager.components[cpn.Name] = &ci
 	}
 	componentManager.self.spec = config.Spec().Manager.Component
 	componentManager.self.fetchComponentInfo()
@@ -324,12 +324,12 @@ func (cm *ComponentManager) GetComponent(name string) *ComponentInstance {
  * }
  */
 func (cm *ComponentManager) UpgradeAll() error {
-	for _, cpn := range cm.components {
+	for _, cpn := range cm.configs {
 		if cpn.needUpgrade {
 			cpn.upgradeComponent()
 		}
 	}
-	for _, cpn := range cm.configs {
+	for _, cpn := range cm.components {
 		if cpn.needUpgrade {
 			cpn.upgradeComponent()
 		}

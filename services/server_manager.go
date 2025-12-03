@@ -480,8 +480,11 @@ func (s *Server) GetHealthz() models.HealthResponse {
 		if svc.status == models.StatusRunning {
 			activeServices++
 			tun := svc.GetTunnel()
-			if tun != nil && tun.status == models.StatusRunning {
-				activeTunnels += len(tun.pairs)
+			if tun != nil {
+				detail := tun.GetDetail()
+				if detail.Status == models.StatusRunning {
+					activeTunnels += len(detail.Pairs)
+				}
 			}
 		}
 	}

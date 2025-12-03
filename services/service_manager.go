@@ -13,6 +13,8 @@ import (
 	"costrict-keeper/internal/env"
 	"costrict-keeper/internal/logger"
 	"costrict-keeper/internal/models"
+	"costrict-keeper/internal/proc"
+	"costrict-keeper/internal/tun"
 	"costrict-keeper/internal/utils"
 )
 
@@ -30,8 +32,8 @@ const (
 type ServiceInstance struct {
 	spec        models.ServiceSpecification //服务的规格描述，由服务端下发
 	component   *ComponentInstance          //运行服务的组件，实现服务的具体逻辑
-	proc        *ProcessInstance            //运行该服务的进程
-	tun         *TunnelInstance             //支持该服务远程访问的隧道
+	proc        *proc.ProcessInstance       //运行该服务的进程
+	tun         *tun.TunnelInstance         //支持该服务远程访问的隧道
 	status      models.RunStatus            //服务状态
 	startTime   string                      //服务启动时间
 	port        int                         //服务侦听的端口
@@ -101,7 +103,7 @@ func newService(spec *models.ServiceSpecification, cpn *ComponentInstance, child
 	}
 	svc.proc = createProcessInstance(&svc.spec, svc.port)
 	if spec.Accessible == "remote" {
-		svc.tun = CreateTunnel(spec.Name, []int{spec.Port})
+		svc.tun = tun.CreateTunnel(spec.Name, []int{spec.Port})
 	}
 	return svc
 }
@@ -169,11 +171,11 @@ func (svc *ServiceInstance) GetDetail() models.ServiceDetail {
  * - Returns nil if service is not running or has no associated process
  * - Used to access process-level operations and information
  */
-func (svc *ServiceInstance) GetProc() *ProcessInstance {
+func (svc *ServiceInstance) GetProc() *proc.ProcessInstance {
 	return svc.proc
 }
 
-func (svc *ServiceInstance) GetTunnel() *TunnelInstance {
+func (svc *ServiceInstance) GetTunnel() *tun.TunnelInstance {
 	return svc.tun
 }
 
@@ -318,11 +320,12 @@ func (svc *ServiceInstance) StartService(ctx context.Context) error {
 		return err
 	}
 	if env.Daemon && svc.spec.Startup == "always" {
-		svc.proc.EnableWatcher(7, nil, func(pi *ProcessInstance) {
-			if pi.process == nil {
+		svc.proc.SetWatcher(7, func(pi *proc.ProcessInstance) {
+			switch pi.Status {
+			case models.StatusExited, models.StatusError:
 				svc.status = models.StatusError
-			} else {
-				svc.status = models.StatusRunning
+			default: //models.StatusStopped, models.StatusRunning
+				svc.status = pi.Status
 			}
 			svc.saveService()
 		})
@@ -349,7 +352,7 @@ func (svc *ServiceInstance) StopService() {
 }
 
 func (svc *ServiceInstance) RecoverService() {
-	if svc.status == models.StatusStopped || svc.status == models.StatusDisabled {
+	if svc.status == models.StatusStopped {
 		return
 	}
 	//只剩下三种状态 StatusExited, StatusRunning, StatusError
@@ -401,7 +404,7 @@ func (svc *ServiceInstance) CheckService() models.HealthyStatus {
 	return models.Healthy
 }
 
-func createProcessInstance(spec *models.ServiceSpecification, port int) *ProcessInstance {
+func createProcessInstance(spec *models.ServiceSpecification, port int) *proc.ProcessInstance {
 	name := spec.Name
 	if runtime.GOOS == "windows" {
 		name = fmt.Sprintf("%s.exe", spec.Name)
@@ -413,12 +416,12 @@ func createProcessInstance(spec *models.ServiceSpecification, port int) *Process
 	}
 	command, cmdArgs, err := utils.GetCommandLine(spec.Command, spec.Args, args)
 	if err != nil {
-		proc := NewProcessInstance("service "+spec.Name, name, command, cmdArgs)
+		proc := proc.NewProcessInstance("service "+spec.Name, name, command, cmdArgs)
 		proc.Status = models.StatusError
 		proc.LastExitReason = err.Error()
 		return proc
 	}
-	return NewProcessInstance("service "+spec.Name, name, command, cmdArgs)
+	return proc.NewProcessInstance("service "+spec.Name, name, command, cmdArgs)
 }
 
 func RunTool(spec *models.ServiceSpecification) error {
@@ -433,7 +436,7 @@ func (svc *ServiceInstance) OpenTunnel(ctx context.Context) error {
 	if svc.spec.Accessible != "remote" {
 		return nil
 	}
-	svc.tun = CreateTunnel(svc.spec.Name, []int{svc.port})
+	svc.tun = tun.CreateTunnel(svc.spec.Name, []int{svc.port})
 	if err := svc.tun.OpenTunnel(ctx); err != nil {
 		logger.Errorf("Start tunnel (%s:%d) failed: %v", svc.spec.Name, svc.port, err)
 		return err

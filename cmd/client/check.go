@@ -98,7 +98,7 @@ func displayServices(services []models.ServiceDetail) {
 }
 
 func displayTunnel(tunnel *models.TunnelDetail) {
-	if tunnel == nil || tunnel.Status == models.StatusDisabled {
+	if tunnel == nil {
 		return
 	}
 	statusIcon := "✅"

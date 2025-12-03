@@ -73,7 +73,7 @@ func startService(serviceName string) {
 			fmt.Printf("  Start Time: %s\n", startTime.Format("2006-01-02 15:04:05"))
 		}
 	}
-	if serviceDetail.Tunnel.Status != models.StatusDisabled {
+	if serviceDetail.Tunnel != nil {
 		fmt.Printf("  Tunnel: %s\n", serviceDetail.Tunnel.Status)
 		for _, pair := range serviceDetail.Tunnel.Pairs {
 			fmt.Printf("    Local Port: %d -> Mapping Port: %d\n", pair.LocalPort, pair.MappingPort)

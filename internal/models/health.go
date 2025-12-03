@@ -24,10 +24,10 @@ type Metrics struct {
 type HealthyStatus string
 
 const (
-	Healthy     HealthyStatus = "healthy"
-	Unhealthy   HealthyStatus = "unhealthy"
-	Incomplete  HealthyStatus = "incomplete"
-	Unavailable HealthyStatus = "unavailable"
+	Healthy     HealthyStatus = "healthy"     //健康
+	Unhealthy   HealthyStatus = "unhealthy"   //亚健康
+	Incomplete  HealthyStatus = "incomplete"  //不完整，一般是隧道出问题了
+	Unavailable HealthyStatus = "unavailable" //不可用了
 )
 
 //healthy, unhealthy, incomplete,unavailable

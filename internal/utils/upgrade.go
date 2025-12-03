@@ -427,7 +427,7 @@ func (u *Upgrader) GetPackage(specVer *VersionNumber) (PackageVersion, bool, err
 		}
 		addr = vers.Newest
 	}
-	if err := u.checkLocalPackage(addr.VersionId); err == nil {
+	if pkg, err := u.checkLocalPackage(addr.VersionId); err == nil {
 		return pkg, true, nil
 	}
 	//	获取云端升级包的描述信息
@@ -681,15 +681,18 @@ func removeOldestVersions(versions []VersionSummary, reserveNum int) {
 	}
 }
 
-func (u *Upgrader) checkLocalPackage(ver VersionNumber) error {
+func (u *Upgrader) checkLocalPackage(ver VersionNumber) (PackageVersion, error) {
 	pkgFile := filepath.Join(u.packageDir, fmt.Sprintf("%s-%s.json", u.packageName, ver.String()))
 	var pkg PackageVersion
 	if err := pkg.Load(pkgFile); err != nil {
-		return err
+		return pkg, err
 	}
 	_, fname := filepath.Split(pkg.FileName)
 	cacheFname := filepath.Join(u.packageDir, ver.String(), fname)
-	return u.verifyIntegrity(pkg, cacheFname)
+	if err := u.verifyIntegrity(pkg, cacheFname); err != nil {
+		return pkg, err
+	}
+	return pkg, nil
 }
 
 func (u *Upgrader) verifyIntegrity(pkg PackageVersion, fname string) error {

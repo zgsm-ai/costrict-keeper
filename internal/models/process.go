@@ -13,8 +13,6 @@ const (
 	StatusError RunStatus = "error"
 	// 表示被用户手动停止，5分钟检测流程不会尝试重启，用户通过启动命令可以手动启动
 	StatusStopped RunStatus = "stopped"
-	// 被禁用 和stopped的区别是: stopped表示临时不再启动，disabled表示长期被禁用
-	StatusDisabled RunStatus = "disabled"
 )
 
 type ProcessDetail struct {
