@@ -67,8 +67,8 @@ func KillProcessByPID(pid int) error {
 	return nil
 }
 
-// getProcessName 根据PID获取进程名
-func getProcessName(pid uint32) (string, error) {
+// 根据PID获取进程名
+func GetProcessName(pid int) (string, error) {
 	// 打开进程句柄
 	handle, _, _ := procOpenProcess.Call(
 		uintptr(PROCESS_QUERY_INFORMATION|PROCESS_VM_READ),
@@ -145,10 +145,6 @@ func IsProcessRunning(pid int) (bool, error) {
 	return exitCode == STILL_ACTIVE, nil
 }
 
-func GetProcessName(pid int) (string, error) {
-	return getProcessName(uint32(pid))
-}
-
 /**
  * Kill processes on Windows system
  * @param {string} processName - Name of the process to kill
@@ -161,12 +157,12 @@ func GetProcessName(pid int) (string, error) {
  * - Command execution errors
  * - Process kill errors
  */
-func killSpecifiedProcess(processName string) error {
+func KillSpecifiedProcess(processName string) error {
 	log.Printf("Looking for process: %s\n", processName)
 	// 获取所有进程ID和对应的进程名
 	// 由于Windows API限制，我们需要使用其他方法来枚举进程
 	// 这里使用tasklist命令作为备用方案
-	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s*", processName), "/FO", "CSV", "/NH")
+	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s.exe", processName), "/FO", "CSV", "/NH")
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("Failed to list processes for %s: %v\n", processName, err)
@@ -184,29 +180,71 @@ func killSpecifiedProcess(processName string) error {
 
 		// CSV格式: "进程名","PID","会话名","会话#","内存使用"
 		fields := strings.Split(line, "\",\"")
-		if len(fields) >= 2 {
-			// 移除引号
-			procName := strings.Trim(fields[0], "\"")
-			pidStr := strings.Trim(fields[1], "\"")
+		if len(fields) < 2 {
+			continue
+		}
+		// 移除引号
+		procName := strings.Trim(fields[0], "\"")
+		pidStr := strings.Trim(fields[1], "\"")
+		procName = Path2ProcessName(procName)
+		// 重复校验一下，检查进程名是否匹配，防止出错
+		if !strings.EqualFold(procName, processName) {
+			continue
+		}
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			continue
+		}
+		if pid == selfPid {
+			continue
+		}
 
-			// 检查进程名是否匹配
-			if strings.Contains(strings.ToLower(procName), strings.ToLower(processName)) {
-				pid, err := strconv.Atoi(pidStr)
-				if err != nil {
-					continue
-				}
-				if pid == selfPid {
-					continue
-				}
-
-				// 使用Windows API杀死进程
-				if err := KillProcessByPID(pid); err != nil {
-					log.Printf("Failed to kill process %s (PID: %d): %v\n", procName, pid, err)
-				} else {
-					log.Printf("Successfully killed process %s (PID: %d)\n", procName, pid)
-				}
-			}
+		// 使用Windows API杀死进程
+		if err := KillProcessByPID(pid); err != nil {
+			log.Printf("Failed to kill process %s (PID: %d): %v\n", processName, pid, err)
+		} else {
+			log.Printf("Successfully killed process %s (PID: %d)\n", processName, pid)
 		}
 	}
 	return nil
+}
+
+func FindProcesses(processName string) []int {
+	var pids []int
+	// 获取所有进程ID和对应的进程名
+	// 由于Windows API限制，我们需要使用其他方法来枚举进程
+	// 这里使用tasklist命令作为备用方案
+	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("IMAGENAME eq %s.exe", processName), "/FO", "CSV", "/NH")
+	output, err := cmd.Output()
+	if err != nil {
+		return pids
+	}
+
+	// 解析输出，获取PID
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// CSV格式: "进程名","PID","会话名","会话#","内存使用"
+		fields := strings.Split(line, "\",\"")
+		if len(fields) < 2 {
+			continue
+		}
+		// 移除引号
+		procName := strings.Trim(fields[0], "\"")
+		pidStr := strings.Trim(fields[1], "\"")
+		procName = Path2ProcessName(procName)
+		// 重复校验一下，检查进程名是否匹配，防止出错
+		if !strings.EqualFold(procName, processName) {
+			continue
+		}
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids
 }

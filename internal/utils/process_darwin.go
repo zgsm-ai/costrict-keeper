@@ -53,7 +53,7 @@ func IsProcessRunning(pid int) (bool, error) {
 	return true, nil
 }
 
-// GetProcessName 根据PID获取进程名
+// 根据PID获取进程名
 func GetProcessName(pid int) (string, error) {
 	// 在Darwin系统上，使用ps命令获取进程名
 	// 使用command字段替代comm字段，避免命令名被截断
@@ -63,7 +63,7 @@ func GetProcessName(pid int) (string, error) {
 		return "", fmt.Errorf("failed to get process name for PID %d: %v", pid, err)
 	}
 
-	// 去除空白字符
+	// 去除头尾空白字符
 	commandLine := strings.TrimSpace(string(output))
 	if commandLine == "" {
 		return "", fmt.Errorf("no process found with PID %d", pid)

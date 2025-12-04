@@ -21,14 +21,14 @@ import (
 	"costrict-keeper/internal/utils"
 )
 
-// PortAllocationRequest 端口分配请求
+// 端口分配请求
 type PortAllocationRequest struct {
 	ClientId   string `json:"clientId"`
 	AppName    string `json:"appName"`
 	ClientPort int    `json:"clientPort"`
 }
 
-// PortAllocationResponse 端口分配响应
+// 端口分配响应
 type PortAllocationResponse struct {
 	ClientId    string `json:"clientId"`
 	AppName     string `json:"appName"`
@@ -217,6 +217,13 @@ func (tun *TunnelInstance) allocMappingPort() error {
 	return nil
 }
 
+func (tun *TunnelInstance) GetPid() int {
+	if tun.pi == nil {
+		return 0
+	}
+	return tun.pi.Pid()
+}
+
 func (tun *TunnelInstance) GetDetail() models.TunnelDetail {
 	detail := models.TunnelDetail{
 		Name:        tun.name,
@@ -274,7 +281,7 @@ func (tun *TunnelInstance) OpenTunnel(ctx context.Context) error {
 		return err
 	}
 	if env.Daemon {
-		tun.pi.SetWatcher(7, func(pi *proc.ProcessInstance) {
+		tun.pi.SetWatcher(3, func(pi *proc.ProcessInstance) {
 			switch pi.Status {
 			case models.StatusExited, models.StatusError:
 				tun.status = models.StatusError

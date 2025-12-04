@@ -3,8 +3,10 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"time"
 
 	"costrict-keeper/internal/config"
@@ -305,6 +307,12 @@ func (s *Server) performMidnightCheck() {
 	} else {
 		logger.Info("All components are up to date")
 	}
+	if err := s.CheckExcessiveProcesses(); err != nil {
+		logger.Errorf("Detecting excessive processes: %s", err.Error())
+		os.Exit(0)
+	} else {
+		logger.Info("No remaining processes were found")
+	}
 }
 
 /**
@@ -332,7 +340,6 @@ func (s *Server) Check() models.CheckResponse {
 	}
 
 	// 检查服务
-	// s.service.CheckServices()
 	var serviceResults []models.ServiceDetail
 	for _, svc := range s.service.GetInstances(false) {
 		serviceResult := svc.GetDetail()
@@ -391,6 +398,69 @@ func (s *Server) Check() models.CheckResponse {
 	}
 
 	return response
+}
+
+/**
+ * Check environment for unexpected processes
+ * @returns {error} Returns error if unexpected processes found, nil on success
+ * @description
+ * - Collects expected process IDs from services and tunnels
+ * - Collects all process IDs from components
+ * - Sorts both expected and all process ID lists
+ * - Checks if there are processes in 'all' that are not in 'exp'
+ * - Returns error with unexpected process IDs if found
+ * @throws
+ * - Error with message containing unexpected process IDs
+ * @example
+ * if err := server.CheckExcessiveProcesses(); err != nil {
+ *     logger.Error("Environment check failed:", err)
+ * }
+ */
+func (s *Server) CheckExcessiveProcesses() error {
+	var all []int
+	var exp []int
+
+	for _, svc := range s.service.GetInstances(true) {
+		exp = append(exp, svc.GetPid())
+		tun := svc.GetTunnel()
+		if tun != nil {
+			exp = append(exp, tun.GetPid())
+		}
+	}
+	for _, cpn := range s.component.components {
+		pids := utils.FindProcesses(cpn.spec.Name)
+		all = append(all, pids...)
+	}
+
+	// Sort both slices for comparison
+	sort.Ints(all)
+	sort.Ints(exp)
+
+	// Find unexpected processes (in all but not in exp)
+	var unexpected []int
+	i, j := 0, 0
+	for i < len(all) && j < len(exp) {
+		if all[i] < exp[j] {
+			unexpected = append(unexpected, all[i])
+			i++
+		} else if all[i] > exp[j] {
+			j++
+		} else {
+			i++
+			j++
+		}
+	}
+	// Add remaining elements from all
+	for i < len(all) {
+		unexpected = append(unexpected, all[i])
+		i++
+	}
+
+	if len(unexpected) > 0 {
+		return fmt.Errorf("%v", unexpected)
+	}
+
+	return nil
 }
 
 func configToString(v interface{}) string {

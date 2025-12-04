@@ -26,7 +26,7 @@ import (
  * - Command execution errors
  * - Process kill errors
  */
-func killSpecifiedProcess(processName string) error {
+func KillSpecifiedProcess(processName string) error {
 	log.Printf("Looking for process: %s\n", processName)
 
 	selfPid := os.Getpid()
@@ -47,35 +47,35 @@ func killSpecifiedProcess(processName string) error {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-
 		// 跳过标题行
 		if strings.HasPrefix(line, "PID") {
 			continue
 		}
-
 		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			pidStr := fields[0]
-			procName := fields[1]
+		if len(fields) < 2 {
+			continue
+		}
 
-			// 检查进程名是否匹配（不区分大小写）
-			if strings.Contains(strings.ToLower(procName), strings.ToLower(processName)) {
-				pid, err := strconv.Atoi(pidStr)
-				if err != nil {
-					log.Printf("Failed to parse PID %s for process %s: %v\n", pidStr, procName, err)
-					continue
-				}
-				if pid == selfPid {
-					continue
-				}
+		pidStr := fields[0]
+		procName := Path2ProcessName(fields[1])
+		// 检查进程名是否匹配（不区分大小写）
+		if !strings.EqualFold(procName, processName) {
+			continue
+		}
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			log.Printf("Failed to parse PID %s for process %s: %v\n", pidStr, processName, err)
+			continue
+		}
+		if pid == selfPid {
+			continue
+		}
 
-				// 优雅地杀死进程
-				if err := killProcessGracefully(pid, procName); err != nil {
-					log.Printf("Failed to kill process %s (PID: %d): %v\n", procName, pid, err)
-				} else {
-					log.Printf("Successfully killed process %s (PID: %d)\n", procName, pid)
-				}
-			}
+		// 优雅地杀死进程
+		if err := killProcessGracefully(pid, processName); err != nil {
+			log.Printf("Failed to kill process %s (PID: %d): %v\n", processName, pid, err)
+		} else {
+			log.Printf("Successfully killed process %s (PID: %d)\n", processName, pid)
 		}
 	}
 	return nil
@@ -127,4 +127,48 @@ func killProcessGracefully(pid int, procName string) error {
 
 	log.Printf("Process %s (PID: %d) force killed\n", procName, pid)
 	return nil
+}
+
+func FindProcesses(processName string) []int {
+	var pids []int
+
+	// 使用兼容Linux和Darwin的ps命令格式
+	// -e: 显示所有进程，-o: 自定义输出格式
+	// 使用command字段替代comm字段，避免命令名被截断
+	cmd := exec.Command("ps", "-e", "-o", "pid,command")
+	output, err := cmd.Output()
+	if err != nil {
+		return pids
+	}
+
+	// 解析输出，获取PID
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// 跳过标题行
+		if strings.HasPrefix(line, "PID") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pidStr := fields[0]
+		procName := Path2ProcessName(fields[1])
+		// 检查进程名是否匹配（不区分大小写）
+		if !strings.EqualFold(procName, processName) {
+			continue
+		}
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			log.Printf("Failed to parse PID %s for process %s: %v\n", pidStr, procName, err)
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids
 }

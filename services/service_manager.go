@@ -179,6 +179,14 @@ func (svc *ServiceInstance) GetTunnel() *tun.TunnelInstance {
 	return svc.tun
 }
 
+func (svc *ServiceInstance) GetPid() int {
+	if svc.child {
+		return svc.proc.Pid()
+	} else {
+		return os.Getpid()
+	}
+}
+
 /**
  * Check if service is healthy and running
  * @param {string} name - Name of the service to check
@@ -320,7 +328,7 @@ func (svc *ServiceInstance) StartService(ctx context.Context) error {
 		return err
 	}
 	if env.Daemon && svc.spec.Startup == "always" {
-		svc.proc.SetWatcher(7, func(pi *proc.ProcessInstance) {
+		svc.proc.SetWatcher(3, func(pi *proc.ProcessInstance) {
 			switch pi.Status {
 			case models.StatusExited, models.StatusError:
 				svc.status = models.StatusError
@@ -589,11 +597,6 @@ func (sm *ServiceManager) StopAll() {
  * - Service not found errors
  * - Service already running errors
  * - Service start errors
- * @example
- * ctx := context.Background()
- * if err := serviceManager.StartService(ctx, "my-service"); err != nil {
- *     logger.Error("Failed to start service:", err)
- * }
  */
 func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
 	svc, ok := sm.services[name]
@@ -625,11 +628,6 @@ func (sm *ServiceManager) StartService(ctx context.Context, name string) error {
  * - Service not found errors
  * - Service stop errors
  * - Service start errors
- * @example
- * ctx := context.Background()
- * if err := serviceManager.RestartService(ctx, "my-service"); err != nil {
- *     logger.Error("Failed to restart service:", err)
- * }
  */
 func (sm *ServiceManager) RestartService(ctx context.Context, name string) error {
 	svc, ok := sm.services[name]
@@ -676,21 +674,6 @@ func (sm *ServiceManager) StopService(name string) error {
 	svc.StopService()
 	sm.export()
 	return nil
-}
-
-/**
- * Check health status of all running services
- * @returns {error} Returns nil (always returns nil for backward compatibility)
- * @description
- * - Iterates through all managed services
- * - Checks port connectivity for services with port > 0
- * - Logs error for services that are unhealthy
- * - Used for periodic health monitoring
- */
-func (sm *ServiceManager) CheckServices() {
-	for _, svc := range sm.services {
-		svc.CheckService()
-	}
 }
 
 func (sm *ServiceManager) RecoverServices() {
