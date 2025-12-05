@@ -153,7 +153,15 @@ func (ls *LogService) UploadErrors() error {
 		if err != nil {
 			continue
 		}
+		errorLogs = append(errorLogs, fmt.Sprintf("------%s------", filePath))
 		errorLogs = append(errorLogs, lines...)
+		if len(lines) == 0 {
+			errorLogs = append(errorLogs, "no errors")
+		} else if len(lines) > 1000 {
+			errorLogs = append(errorLogs, lines[len(lines)-1000:]...)
+		} else {
+			errorLogs = append(errorLogs, lines...)
+		}
 	}
 	var logText string
 	if len(errorLogs) > 0 {

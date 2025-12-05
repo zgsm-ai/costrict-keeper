@@ -364,7 +364,6 @@ func (cm *ComponentManager) CheckComponents() int {
 	for _, cpn := range cm.configs {
 		components = append(components, cpn)
 	}
-	components = append(components, &cm.self)
 	for _, cpn := range components {
 		// Refresh component information to get latest version
 		if err := cpn.fetchComponentInfo(); err != nil {

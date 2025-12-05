@@ -30,7 +30,7 @@ func main() {
 	isServerMode := len(os.Args) > 1 && os.Args[1] == "server"
 	config.LoadConfig(true)
 	cfg := config.App()
-	logger.InitLogger(cfg.Log.Path, cfg.Log.Level, isServerMode, cfg.Log.MaxSize)
+	logger.InitLogger(cfg.Log.Path, cfg.Log.Level, isServerMode, cfg.Log.MaxSize, cfg.Log.Backup)
 
 	if err := root.RootCmd.Execute(); err != nil {
 		logger.Fatal(err)

@@ -207,6 +207,9 @@ func (s *Server) StartLogReporting() {
 	defer ticker.Stop()
 
 	ls := NewLogService()
+	if err := ls.UploadErrors(); err != nil {
+		logger.Warnf("Log reporting error: %v", err)
+	}
 	for range ticker.C {
 		if err := ls.UploadErrors(); err != nil {
 			logger.Warnf("Log reporting error: %v", err)

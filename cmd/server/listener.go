@@ -74,13 +74,13 @@ func CreateListeners(addrs []ListenAddr) ([]net.Listener, error) {
 	for _, addr := range addrs {
 		if addr.Network == "unix" {
 			if err := os.Remove(addr.Address); err != nil && !os.IsNotExist(err) {
-				logger.Errorf("Failed to remove existing socket file: %v\n", err)
+				logger.Errorf("Failed to remove existing socket file: %v", err)
 				continue
 			}
 		}
 		tcpListener, err := net.Listen(addr.Network, addr.Address)
 		if err != nil {
-			logger.Errorf("Failed to create listener on %s://%s: %w", addr.Network, addr.Address, err)
+			logger.Errorf("Failed to create listener on %s://%s: %v", addr.Network, addr.Address, err)
 			lastErr = err
 			continue
 		}

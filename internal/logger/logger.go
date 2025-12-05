@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ var (
 type sizeLimitedWriter struct {
 	filePath string
 	maxSize  int64
+	backup   int
 	file     *os.File
 	mu       sync.Mutex
 }
@@ -30,7 +32,6 @@ type Logger struct {
 	infoLogger  *log.Logger
 	warnLogger  *log.Logger
 	errorLogger *log.Logger
-	logWriter   *sizeLimitedWriter
 }
 
 // LogLevel 日志级别类型
@@ -53,10 +54,11 @@ const (
  * - Rotated files will have timestamp suffix (e.g., costrict.log.20240101-150405)
  * - Thread-safe implementation using mutex
  */
-func newSizeLimitedWriter(filePath string, maxSize int64) (*sizeLimitedWriter, error) {
+func newSizeLimitedWriter(filePath string, maxSize int64, backup int) (*sizeLimitedWriter, error) {
 	w := &sizeLimitedWriter{
 		filePath: filePath,
 		maxSize:  maxSize,
+		backup:   backup,
 	}
 
 	if err := w.rotateIfNeeded(); err != nil {
@@ -118,21 +120,23 @@ func (w *sizeLimitedWriter) rotateIfNeeded() error {
 			return err
 		}
 
-		if fileInfo.Size() >= w.maxSize {
-			// Close current file
-			if err := w.file.Close(); err != nil {
-				return err
-			}
-
-			// Rename current file with timestamp
-			timestamp := time.Now().Format("20060102-150405")
-			backupPath := w.filePath + "." + timestamp
-			if err := os.Rename(w.filePath, backupPath); err != nil {
-				return err
-			}
-		} else {
+		if fileInfo.Size() < w.maxSize {
 			// File is within size limit, no rotation needed
 			return nil
+		}
+		// Close current file
+		if err := w.file.Close(); err != nil {
+			return err
+		}
+
+		// Rename current file with timestamp
+		timestamp := time.Now().Format("20060102-150405")
+		backupPath := w.filePath + "." + timestamp
+		if err := os.Rename(w.filePath, backupPath); err != nil {
+			return err
+		}
+		if err := removeRedundantBackups(w.filePath, w.backup); err != nil {
+			fmt.Fprintf(os.Stderr, "remove redundant backups: %s", err.Error())
 		}
 	}
 
@@ -146,7 +150,64 @@ func (w *sizeLimitedWriter) rotateIfNeeded() error {
 	return nil
 }
 
-// GetLogLevelFromString 将字符串转换为日志级别
+func removeRedundantBackups(filePath string, backupCount int) error {
+	if backupCount < 0 {
+		return nil
+	}
+	dir := filepath.Dir(filePath)
+	fprefix := filepath.Base(filePath)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	type item struct {
+		path string
+		tm   time.Time
+	}
+	var backups []item
+	const tsLen = len("20060102-150405")
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, fprefix) {
+			continue
+		}
+		// 后缀必须是 <timestamp>
+		if len(name) < tsLen {
+			continue
+		}
+		tsStr := name[len(name)-tsLen:]
+		tm, err := time.Parse("20060102-150405", tsStr)
+		if err != nil {
+			continue // 格式不符，跳过
+		}
+		backups = append(backups, item{
+			path: filepath.Join(dir, name),
+			tm:   tm,
+		})
+	}
+
+	// 按时间升序
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].tm.Before(backups[j].tm)
+	})
+
+	// 删除多余的
+	toDel := len(backups) - backupCount
+	for i := 0; i < toDel; i++ {
+		if err := os.Remove(backups[i].path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// 将字符串转换为日志级别
 func GetLogLevelFromString(level string) LogLevel {
 	switch strings.ToLower(level) {
 	case "debug":
@@ -162,18 +223,18 @@ func GetLogLevelFromString(level string) LogLevel {
 	}
 }
 
-// InitLogger 根据运行模式初始化日志系统
+// 根据运行模式初始化日志系统
 // isServerMode: true表示HTTP服务器模式，false表示CLI模式
-func InitLogger(logPath, level string, isServerMode bool, maxSize int64) {
+func InitLogger(logPath, level string, isServerMode bool, maxSize int64, backup int) {
 	var output io.Writer
 
 	// 根据配置设置输出位置
 	if logPath == "console" || logPath == "" {
 		// 如果没有指定日志路径，使用默认路径
 		logPath := filepath.Join(env.CostrictDir, "logs", "costrict.log")
-		output = setupLogFileOutput(logPath, maxSize)
+		output = setupLogFileOutput(logPath, maxSize, backup)
 	} else {
-		output = setupLogFileOutput(logPath, maxSize)
+		output = setupLogFileOutput(logPath, maxSize, backup)
 	}
 
 	// 如果是服务器模式，同时输出到控制台
@@ -209,8 +270,8 @@ func InitLogger(logPath, level string, isServerMode bool, maxSize int64) {
 	}
 }
 
-// setupLogFileOutput 设置日志文件输出
-func setupLogFileOutput(logPath string, maxSize int64) io.Writer {
+// 设置日志文件输出
+func setupLogFileOutput(logPath string, maxSize int64, backup int) io.Writer {
 	// 确保日志目录存在
 	logDir := filepath.Dir(logPath)
 	if err := os.MkdirAll(logDir, 0755); err != nil {
@@ -218,13 +279,15 @@ func setupLogFileOutput(logPath string, maxSize int64) io.Writer {
 		return os.Stdout
 	}
 
-	writer, err := newSizeLimitedWriter(logPath, maxSize)
+	writer, err := newSizeLimitedWriter(logPath, maxSize, backup)
 	if err != nil {
 		// 在日志系统初始化失败时，暂时使用标准错误输出
 		fmt.Fprintf(os.Stderr, "创建日志写入器失败: %v\n", err)
 		return os.Stdout
 	}
-
+	if err := removeRedundantBackups(logPath, backup); err != nil {
+		fmt.Fprintf(os.Stderr, "remove redundant backups: %s", err.Error())
+	}
 	return writer
 }
 

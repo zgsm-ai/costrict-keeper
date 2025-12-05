@@ -43,12 +43,14 @@ type ComponentConfig struct {
  * Logging configuration
  * @property {string} level - Log level (debug/info/warn/error)
  * @property {string} path - Log file path
- * @property {int64} maxSize - Maximum log file size in bytes (default: 52428800, which is 50MB)
+ * @property {int64} maxSize - Maximum log file size in bytes (default: 5242880, which is 5MB)
+ * @property {int} backup - Maximum number of log backup files (default: 1)
  */
 type LogConfig struct {
 	Level   string `json:"level"`
 	Path    string `json:"path"`
 	MaxSize int64  `json:"maxSize"`
+	Backup  int    `json:"backup"`
 }
 
 type CloudConfig struct {
@@ -164,6 +166,9 @@ func (cfg *AppConfig) correctConfig() {
 	}
 	if cfg.Log.MaxSize == 0 {
 		cfg.Log.MaxSize = 1 * 1024 * 1024 // 默认1M
+	}
+	if cfg.Log.Backup == 0 {
+		cfg.Log.Backup = 1
 	}
 }
 
