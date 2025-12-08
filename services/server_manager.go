@@ -208,11 +208,11 @@ func (s *Server) StartLogReporting() {
 
 	ls := NewLogService()
 	if err := ls.UploadErrors(); err != nil {
-		logger.Warnf("Log reporting error: %v", err)
+		logger.Warnf("Collect and upload the error logs failed: %v", err)
 	}
 	for range ticker.C {
 		if err := ls.UploadErrors(); err != nil {
-			logger.Warnf("Log reporting error: %v", err)
+			logger.Warnf("Collect and upload the error logs failed: %v", err)
 		}
 	}
 }

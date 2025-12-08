@@ -109,6 +109,8 @@ func getFileErrors(filePath string) ([]string, error) {
 
 	// 使用 bufio.Scanner 逐行读取文件
 	scanner := bufio.NewScanner(file)
+	const maxCapacity = 2 * 1024 * 1024
+	scanner.Buffer(make([]byte, 64*1024), maxCapacity)
 	for scanner.Scan() {
 		line := scanner.Text()
 		// 检查行是否包含 'ERROR'
@@ -138,8 +140,7 @@ func (ls *LogService) UploadErrors() error {
 		return fmt.Errorf("directory '%s' read failed: %v", directory, err)
 	}
 
-	var errorLogs []string
-
+	var lastErr error
 	// 遍历所有文件，上传日志文件
 	for _, file := range files {
 		if file.IsDir() {
@@ -148,40 +149,40 @@ func (ls *LogService) UploadErrors() error {
 		if !strings.HasSuffix(strings.ToLower(file.Name()), ".log") {
 			continue
 		}
+		//	从日志文件中获取错误级别的日志，这些意味着需要系统管理员关注
+		//	如果没有错误日志，则跳过该文件
 		filePath := filepath.Join(directory, file.Name())
 		lines, err := getFileErrors(filePath)
 		if err != nil {
+			lastErr = err
 			continue
 		}
-		errorLogs = append(errorLogs, fmt.Sprintf("------%s------", filePath))
-		errorLogs = append(errorLogs, lines...)
 		if len(lines) == 0 {
-			errorLogs = append(errorLogs, "no errors")
-		} else if len(lines) > 1000 {
-			errorLogs = append(errorLogs, lines[len(lines)-1000:]...)
-		} else {
-			errorLogs = append(errorLogs, lines...)
+			continue
+		}
+		//	上次上传过的错误日志已经缓存到".last-errors"为后缀的文件中，如果内容没变，则跳过该文件
+		newErrorContent := strings.Join(lines, "\n")
+		fname := fmt.Sprintf("%s.last-errors", strings.TrimSuffix(file.Name(), ".log"))
+		lastErrorFile := filepath.Join(env.CostrictDir, "logs", fname)
+		lastErrorContent, err := os.ReadFile(lastErrorFile)
+		if err == nil && string(lastErrorContent) == newErrorContent {
+			continue
+		}
+		buf := bytes.NewReader([]byte(newErrorContent))
+		err = uploadBuffer(buf, fname, ls.logUrl)
+		if err != nil {
+			logger.Warnf("Failed to upload '%s', size: %d, error: %v", fname, len(newErrorContent), err)
+			lastErr = err
+			continue
+		}
+		logger.Debugf("Successfully uploaded '%s', size: %d", fname, len(newErrorContent))
+		//	上传成功后，把上传成功的内容写到"<filenamee>.last-errors"文件中
+		err = os.WriteFile(lastErrorFile, []byte(newErrorContent), 0664)
+		if err != nil {
+			lastErr = err
 		}
 	}
-	var logText string
-	if len(errorLogs) > 0 {
-		logText = strings.Join(errorLogs, "\n")
-	} else {
-		logText = "no errors"
-	}
-
-	lastErrorFile := filepath.Join(env.CostrictDir, "logs", "last-upload-errors")
-	lastErrorContent, err := os.ReadFile(lastErrorFile)
-	if err == nil && string(lastErrorContent) == logText {
-		return nil
-	}
-	buf := bytes.NewReader([]byte(logText))
-	err = uploadBuffer(buf, "last-upload-errors", ls.logUrl)
-	if err != nil {
-		return err
-	}
-	err = os.WriteFile(lastErrorFile, []byte(logText), 0664)
-	return err
+	return lastErr
 }
 
 /**
